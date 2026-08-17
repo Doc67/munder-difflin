@@ -394,6 +394,9 @@ export function useHive(config: HarnessConfig | null): void {
       const { updateAgent, agents } = useStore.getState();
       const self = agents.find((a) => a.id === e.agentId);
       if (!self) return;
+      // Quota-blocked agents are externally limited — hook events must not flip
+      // them back to 'working' until the block is cleared.
+      if (self.quotaBlock) return;
       // Breaker precedence (#5C): a constrained/stopped agent stays 'looping'
       // regardless of in-flight tool/prompt/compact events.
       const blevel = breakerLevel.current[e.agentId];
@@ -470,10 +473,32 @@ export function useHive(config: HarnessConfig | null): void {
       breakerLevel.current[s.agentId] = s.level;
       const { updateAgent, agents } = useStore.getState();
       if (!agents.some((a) => a.id === s.agentId)) return;
+      // Quota-blocked agents are externally limited, not looping — do not let
+      // the breaker overwrite a quota_blocked status.
+      const current = agents.find((a) => a.id === s.agentId);
+      if (current?.quotaBlock) return;
       if (s.level === 'constrained' || s.level === 'stopped') {
         updateAgent(s.agentId, { status: 'looping', action: s.reason || 'breaker armed', carrying: undefined });
       }
       // 'healthy'/'steering' clear the pin; the next hook event refreshes status.
+    });
+  }, []);
+
+  // 2b-ii) Quota block state pushed from main when PTY output matches a
+  //        provider quota-exhaustion pattern.  Takes full precedence over the
+  //        breaker pin (quota is not looping) and suppresses inbox wake-ups.
+  useEffect(() => {
+    return window.cth.onQuotaBlockState(({ agentId, info }) => {
+      const { updateAgent, agents } = useStore.getState();
+      if (!agents.some((a) => a.id === agentId)) return;
+      if (info) {
+        // Release the breaker pin so the derived display state shows 'quota_blocked', not 'looping'.
+        breakerLevel.current[agentId] = 'healthy';
+        updateAgent(agentId, { quotaBlock: info });
+      } else {
+        // Block cleared (auto-reset or manual retry) — runtime status is unaffected.
+        updateAgent(agentId, { quotaBlock: undefined });
+      }
     });
   }, []);
 
@@ -574,6 +599,8 @@ export function useHive(config: HarnessConfig | null): void {
         // or a still-booting agent (its boot sequence is mid-type).
         const bl = breakerLevel.current[a.id];
         if (bl === 'constrained' || bl === 'stopped') continue;
+        // Never touch a quota-blocked agent — it is not working, it is blocked.
+        if (a.quotaBlock) continue;
         if ((bootGraceUntil.current[a.id] ?? 0) > now) continue;
         const last = lastOut[a.ptyId];
         if (typeof last === 'number' && last > 0 && now - last > QUIESCE_IDLE_MS) {
@@ -601,6 +628,9 @@ export function useHive(config: HarnessConfig | null): void {
     const iv = setInterval(async () => {
       const agents = useStore.getState().agents.filter((a) => a.ptyId);
       for (const a of agents) {
+        // Never nudge a quota-blocked agent: it cannot process messages while
+        // the provider rejects all model calls.
+        if (a.quotaBlock) continue;
         try {
           const inbox = await window.cth.hiveInbox(a.id);
           // Dedup by the newest message id, not the count — a count can oscillate
@@ -796,6 +826,7 @@ export function useHive(config: HarnessConfig | null): void {
 
       for (const a of agents) {
         if (!a.ptyId || a.status !== 'idle') continue;
+        if (a.quotaBlock) continue;
         if (!messageQueues[a.id]?.length) continue;
         void dispatch(a.id, a).then(({ sent, message }) => {
           if (sent && message?.slack) void ensureSlackCard(message);

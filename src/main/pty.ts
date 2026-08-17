@@ -107,6 +107,17 @@ export class PtyManager {
    *  (archive, worktree removal, map cleanup) that the explicit kill() path
    *  runs. Best-effort — set once by the main process. */
   private exitHandler: ((id: string, exitCode?: number) => void) | null = null;
+  /** Per-PTY output monitors registered by the main process (e.g. quota
+   *  exhaustion detection). Called on every onData chunk AFTER the chunk is
+   *  forwarded to the renderer, so it never blocks the terminal stream. */
+  private readonly outputMonitors = new Map<string, (chunk: string) => void>();
+
+  addOutputMonitor(id: string, cb: (chunk: string) => void): void {
+    this.outputMonitors.set(id, cb);
+  }
+  removeOutputMonitor(id: string): void {
+    this.outputMonitors.delete(id);
+  }
 
   /** The default/fallback output sink — set to the PRIMARY window. Used only for
    *  sessions with no recorded owner; owned sessions route to their owner. */
@@ -371,6 +382,9 @@ export class PtyManager {
         session.lastOutputAt = Date.now();
         // Route to the session's owner window (multi-window owner routing).
         this.safeSend(`pty:data:${opts.id}`, data, session.owner);
+        // Invoke any registered output monitor (e.g. quota exhaustion detector).
+        // Called AFTER the renderer send so it never delays the terminal stream.
+        this.outputMonitors.get(opts.id)?.(data);
       });
       proc.onExit(({ exitCode, signal }) => {
         // Stale exit from a process whose id was reclaimed (kill()+respawn) — do

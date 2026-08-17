@@ -9,6 +9,8 @@ export interface ClosingTimeState {
   phase: 'started' | 'progress' | 'complete' | 'timeout' | 'error';
   acked: number;
   total: number;
+  /** Workers skipped because they were quota-blocked at shutdown time. */
+  skipped?: number;
   error?: string;
 }
 
@@ -101,6 +103,11 @@ export function QuitWarningModal({ ptyCount, closing, onCancel, onConfirm, onClo
                   {closing!.total > 0
                     ? `${closing!.acked} / ${closing!.total} WORKERS CONFIRMED${closing!.acked >= closing!.total ? ' — WAITING FOR THE ORCHESTRATOR' : ''}`
                     : 'NO WORKERS ON THE FLOOR — WAITING FOR THE ORCHESTRATOR'}
+                  {(closing!.skipped ?? 0) > 0 && (
+                    <div style={{ marginTop: 4, color: 'var(--cth-status-quota-blocked, #B54B6A)' }}>
+                      {closing!.skipped} {closing!.skipped === 1 ? 'WORKER' : 'WORKERS'} SKIPPED — QUOTA BLOCKED
+                    </div>
+                  )}
                   {closing!.phase === 'timeout' && (
                     <div style={{ marginTop: 6, fontFamily: 'var(--cth-font-body, inherit)' }}>
                       This is taking a while (an agent may be mid-compaction or deep in a

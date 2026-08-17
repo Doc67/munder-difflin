@@ -272,7 +272,7 @@ export function MessageQueueComposer({ agent }: MessageQueueComposerProps) {
 
     const scan = async () => {
       try {
-        const msgs = await window.cth.hiveInbox(agent.id);
+        const msgs = await window.cth.hiveInbox(agent.id, true);
         const report = [...msgs].reverse().find(
           (m) => m.from !== agent.id && BRANCH_RE.test(m.body) && COMMIT_RE.test(m.body) && PUSH_OK_RE.test(m.body)
         );

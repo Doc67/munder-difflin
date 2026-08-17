@@ -1343,8 +1343,11 @@ export class HiveManager {
       return readFileSync(p, 'utf8').trim().length > 200;
     } catch { return false; }
   }
-  inbox(id: string): HiveMessage[] {
-    return this.listMessages(join(this.agentDir(id), 'inbox'));
+  inbox(id: string, includeDone = false): HiveMessage[] {
+    const active = this.listMessages(join(this.agentDir(id), 'inbox'));
+    if (!includeDone) return active;
+    const done = this.listMessages(join(this.agentDir(id), 'inbox', '.done'));
+    return [...active, ...done];
   }
   /** Read an agent's OUTBOX (messages it has authored/sent). Symmetric with
    *  inbox(); the router drains live outbox files into recipients' inboxes and

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { PixelButton } from './PixelButton';
+import { useStore } from '@/store/store';
+import type { QuotaBlockInfo } from '@shared/quota';
 
 /** Operator control for one agent (#7C.1–7C.3) — pause (deny tools at the next
  *  boundary), graceful halt (clean stop), and mid-run steering (inject context
@@ -18,6 +20,7 @@ export function AgentControlStrip({ agentId }: { agentId: string }) {
   const [steer, setSteer] = useState('');
   const [note, setNote] = useState('');
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const quotaBlock = useStore((s) => s.agents.find((a) => a.id === agentId)?.quotaBlock) as QuotaBlockInfo | undefined;
 
   useEffect(() => {
     let alive = true;
@@ -48,6 +51,11 @@ export function AgentControlStrip({ agentId }: { agentId: string }) {
     if (s) setSnap(s);
     setSteer('');
     flash('steer queued — delivered on next turn');
+  };
+
+  const retryQuota = async () => {
+    await window.cth.quotaBlockClear(agentId);
+    flash('quota block cleared — agent will resume on next message');
   };
 
   return (
@@ -84,6 +92,20 @@ export function AgentControlStrip({ agentId }: { agentId: string }) {
         />
         <PixelButton variant="secondary" size="sm" onClick={sendSteer} disabled={!steer.trim()}>steer</PixelButton>
       </div>
+      {quotaBlock && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{
+            fontFamily: 'var(--cth-font-ui)', fontSize: 11,
+            color: 'var(--cth-status-quota-blocked)', fontWeight: 600
+          }}>
+            QUOTA BLOCKED
+            {quotaBlock.resetsAt
+              ? ` · resets ${new Date(quotaBlock.resetsAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+              : ''}
+          </span>
+          <PixelButton variant="secondary" size="sm" onClick={retryQuota}>retry</PixelButton>
+        </div>
+      )}
       {note && <span style={{ fontSize: 11, color: 'var(--cth-ink-500)' }}>{note}</span>}
     </div>
   );

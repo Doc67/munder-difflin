@@ -16,6 +16,7 @@ import { GitTab } from './GitTab';
 import { Icon } from './Icon';
 import { useStore, type Agent } from '@/store/store';
 import { usePtyParser } from '@/hooks/usePtyParser';
+import { type StatusKind } from './PixelBadge';
 
 export interface AgentDetailPanelProps {
   agent: Agent;
@@ -39,6 +40,7 @@ export function AgentDetailPanel({ agent }: AgentDetailPanelProps) {
   const isFullscreenedHere = fullscreenAgentId === agent.id;
 
   const onPtyStream = usePtyParser(agent.id);
+  const effectiveStatus: StatusKind = agent.quotaBlock ? 'quota_blocked' : agent.status;
 
   // Michael gets the full command-center dashboard instead of the plain panel.
   if (agent.isGod) return <CommandCenterPanel agent={agent} />;
@@ -110,7 +112,7 @@ export function AgentDetailPanel({ agent }: AgentDetailPanelProps) {
           <div style={{
             display: 'flex', gap: 6, alignItems: 'center', marginTop: 1
           }}>
-            <PixelBadge status={agent.status} />
+            <PixelBadge status={effectiveStatus} />
             <span style={{
               fontSize: 12, color: 'var(--cth-ink-500)',
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'

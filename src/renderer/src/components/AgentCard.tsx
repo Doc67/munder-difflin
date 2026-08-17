@@ -41,6 +41,7 @@ export interface AgentCardProps {
   /** Opens the note editor (the strip owns the editing overlay). When set, the
    *  card shows a small ✎ affordance on its note row. */
   onEditNote?: () => void;
+  quotaBlocked?: boolean;
 }
 
 const fmtK = (n: number): string => `${Math.round(n / 1000)}k`;
@@ -53,10 +54,11 @@ const fmtK = (n: number): string => `${Math.round(n / 1000)}k`;
 export function AgentCard({
   name, character, accent, status, ptyId, project, action, progress = 0,
   contextTokens, contextLimit, selected, isGod, onClick,
-  doingCount = 0, onTaskNoteClick, draggable, note, onEditNote
+  doingCount = 0, onTaskNoteClick, draggable, note, onEditNote, quotaBlocked
 }: AgentCardProps) {
   const [hover, setHover] = useState(false);
   const typing = useHasTerminalDraft(ptyId);
+  const effectiveStatus: StatusKind = quotaBlocked ? 'quota_blocked' : (typing ? 'typing' : status);
   // The god is always framed (stands out from the row); others only when selected.
   const framed = isGod || selected;
 
@@ -156,7 +158,7 @@ export function AgentCard({
                   }}>BOSS</span>
                 )}
               </span>
-              <PixelBadge status={typing ? 'typing' : status} />
+              <PixelBadge status={effectiveStatus} />
             </div>
 
             {/* Context line: action while working, repo while idle. */}

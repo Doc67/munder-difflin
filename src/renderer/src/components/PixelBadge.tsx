@@ -5,6 +5,9 @@ export type StatusKind =
   // #5C — richer states driven by real events: PreCompact/PostCompact hooks and
   // the Lane A circuit breaker (#6) respectively.
   | 'compacting' | 'looping'
+  // Provider account quota exhausted — distinct from looping; agent is blocked
+  // by an external provider limit, not faulty behaviour.
+  | 'quota_blocked'
   // Not an agent state at all — the USER has unsubmitted text on that agent's
   // prompt, which holds its queue. Never stored on the agent (the pty parser
   // would overwrite it); derived at render, see `hasTerminalDraft`. Without it
@@ -25,9 +28,10 @@ const colorByStatus: Record<StatusKind, string> = {
   blocked:  'var(--cth-status-blocked)',
   success:  'var(--cth-status-success)',
   ghost:    'var(--cth-status-ghost)',
-  compacting: 'var(--cth-status-compacting)',
-  looping:    'var(--cth-status-looping)',
-  typing:     'var(--cth-status-typing)'
+  compacting:    'var(--cth-status-compacting)',
+  looping:       'var(--cth-status-looping)',
+  quota_blocked: 'var(--cth-status-quota-blocked)',
+  typing:        'var(--cth-status-typing)'
 };
 
 // Human-readable labels. "blocked" is reserved for the god agent waiting on YOU,
@@ -41,8 +45,9 @@ const labelByStatus: Record<StatusKind, string> = {
   blocked:  'needs you',
   success:  'done',
   ghost:    'gone',
-  compacting: 'compacting',
-  looping:    'looping',
+  compacting:    'compacting',
+  looping:       'looping',
+  quota_blocked: 'quota blocked',
   // Reads as "you are typing", not "the agent is typing" — it is your text
   // sitting on the prompt, and it is why nothing is being delivered.
   typing:     'your draft'

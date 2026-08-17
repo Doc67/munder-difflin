@@ -32,9 +32,11 @@ export type ClosingTimePhase =
 
 export interface ClosingTimeEvent {
   phase: ClosingTimePhase;
-  /** Workers that have ACKed so far / total workers being waited on. */
+  /** Workers that have ACKed so far / total workers being waited on (excludes skipped). */
   acked: number;
   total: number;
+  /** Workers skipped because they are quota-blocked and cannot process messages. */
+  skipped: number;
 }
 
 /** Subject markers. Deliberately forgiving (case, -/_/space) — agents write
@@ -53,8 +55,13 @@ const TEARDOWN_GRACE_MS = 2_500;
 export class ClosingTimeController {
   private active = false;
   private godId = 'god';
-  private workers = new Set<string>();
+  /** expectedAckIds: all live non-god workers MINUS quota-blocked ones.
+   *  Every completion check, ACK count, and pending calculation uses THIS set.
+   *  It is fixed at start() time and never mutated. */
+  private expectedAckIds = new Set<string>();
   private acked = new Set<string>();
+  /** skippedIds: quota-blocked workers excluded from the ACK wait. */
+  private skippedIds = new Set<string>();
   private timeoutTimer: NodeJS.Timeout | null = null;
   private teardownTimer: NodeJS.Timeout | null = null;
 
@@ -71,7 +78,11 @@ export class ClosingTimeController {
     /** Mid-run steering (#7C.2): lets closing time reach DEEPLY BUSY agents at
      *  their next hook boundary instead of waiting for the Stop-hook inbox
      *  drain — the graceful interrupt. Optional so tests can omit it. */
-    private control?: ControlRegistry
+    private control?: ControlRegistry,
+    /** Agents currently quota-blocked — they cannot process messages, so
+     *  closing time treats them as already parked and does not steer them
+     *  or wait for their ACK. */
+    private getQuotaBlockedIds?: () => Set<string>
   ) {}
 
   isActive(): boolean {
@@ -94,20 +105,32 @@ export class ClosingTimeController {
       return { ok: false, error: 'No orchestrator is running — closing time needs the god agent to collect the reports.' };
     }
 
-    // Only agents with a live terminal are waited on — the registry is just
-    // metadata here (names + god/assistant flags), never the roster source.
-    this.workers = new Set(
-      [...live].filter((id) => {
-        const a = reg.agents[id];
-        return id !== this.godId && !!a && !a.isGod;
-      })
-    );
+    // Build the three sets. All decisions about who to wait on, steer, or
+    // report use these sets — captured once here, never recomputed.
+    const quotaBlocked = this.getQuotaBlockedIds?.() ?? new Set<string>();
+    const allWorkerIds = [...live].filter((id) => {
+      const a = reg.agents[id];
+      return id !== this.godId && !!a && !a.isGod;
+    });
+    this.skippedIds    = new Set(allWorkerIds.filter((id) => quotaBlocked.has(id)));
+    this.expectedAckIds = new Set(allWorkerIds.filter((id) => !quotaBlocked.has(id)));
     this.acked = new Set();
     this.active = true;
 
-    const names = [...this.workers]
+    // Diagnostic: log the three sets so we can verify ID matching.
+    console.log(
+      `[closing-time] all=${JSON.stringify(allWorkerIds)} ` +
+      `skipped=${JSON.stringify([...this.skippedIds])} ` +
+      `expected=${JSON.stringify([...this.expectedAckIds])} ` +
+      `quotaBlocked=${JSON.stringify([...quotaBlocked])}`
+    );
+
+    const expectedNames = [...this.expectedAckIds]
       .map((id) => `${reg.agents[id]?.name ?? id} (${id})`)
       .join(', ') || '(none — the floor is just you)';
+    const skippedNames = [...this.skippedIds]
+      .map((id) => reg.agents[id]?.name ?? id)
+      .join(', ');
 
     this.hive.send({
       to: 'god',
@@ -116,13 +139,16 @@ export class ClosingTimeController {
       body: [
         'The human pressed "closing time": the harness will close as soon as you confirm the floor is safe. Run this protocol now, before anything else:',
         '',
-        `1. BROADCAST closing time to the team (message with "to":"broadcast"). Current workers: ${names}.`,
+        `1. BROADCAST closing time to the team (message with "to":"broadcast"). Current workers: ${expectedNames}.`,
         '   Tell each worker to immediately: park or commit any work-in-progress safely, append its current state + concrete next steps to its memory.md, and then reply to you with a message whose subject is exactly "CLOSING-TIME-ACK".',
+        ...(this.skippedIds.size > 0 ? [
+          `   NOTE: ${skippedNames} ${this.skippedIds.size === 1 ? 'is' : 'are'} quota-blocked and cannot respond — the harness has already marked ${this.skippedIds.size === 1 ? 'them' : 'them'} as parked. Do NOT message or wait for ${this.skippedIds.size === 1 ? 'them' : 'them'}.`
+        ] : []),
         '2. WAIT and keep draining your inbox until EVERY worker above has sent its CLOSING-TIME-ACK. Nudge stragglers once if needed.',
         '3. Save your own state: update board.md and append your shift summary to your memory.md.',
         `4. CONCLUDE by sending a message with "to":"human" and the subject exactly "CLOSING-TIME-COMPLETE" — the harness watches for it and closes the app. Do not send it before every worker has acked: the harness independently verifies the ACKs and will reject a premature conclusion.`,
         '',
-        this.workers.size === 0
+        this.expectedAckIds.size === 0
           ? 'There are no workers on the floor right now — do steps 3 and 4 immediately.'
           : 'The prep assistant saves its own memory separately — do NOT wait for it and do not message it.',
         'This is a shutdown: do not start new work and do not accept new tasks.'
@@ -135,9 +161,10 @@ export class ClosingTimeController {
     // (PostToolUse/UserPromptSubmit) instead, so every live agent learns about
     // closing time within one tool call. Idle agents are covered by the
     // inbox-wake nudge; busy ones by the steer — both rails, no PTY typing.
+    // Quota-blocked agents are skipped — they cannot process the steer either.
     this.control?.steer(this.godId,
       'CLOSING TIME was pressed by the human: pause your current work at the next sensible point and drain your inbox NOW — a shutdown brief is waiting there. Coordinate the floor shutdown before anything else.');
-    for (const id of this.workers) {
+    for (const id of this.expectedAckIds) {
       this.control?.steer(id,
         'CLOSING TIME — the office is shutting down. Finish your current step but do NOT start new work. Park or commit your work-in-progress safely, append your current state + concrete next steps to your memory.md, then reply to god with a message whose subject is exactly "CLOSING-TIME-ACK".');
     }
@@ -155,7 +182,7 @@ export class ClosingTimeController {
     // busy agent doesn't get told to shut down AFTER the human cancelled.
     // Agents that already saw the note get corrected via the god (below).
     this.control?.clearSteers(this.godId);
-    for (const id of this.workers) this.control?.clearSteers(id);
+    for (const id of this.expectedAckIds) this.control?.clearSteers(id);
     this.emitState('cancelled');
     try {
       this.hive.send({
@@ -170,9 +197,10 @@ export class ClosingTimeController {
   /** Router observer — called by the hive for every routed message. */
   onRouted(msg: HiveMessage, targets: string[]): void {
     if (!this.active) return;
-    // A worker reporting in. Counted only for known workers, and only when the
-    // ACK actually reached the god (not e.g. a stray broadcast echo).
-    if (ACK_RE.test(msg.subject) && this.workers.has(msg.from) && targets.includes(this.godId)) {
+    // A worker reporting in. Counted only for known expected workers, and only
+    // when the ACK actually reached the god (not e.g. a stray broadcast echo).
+    if (ACK_RE.test(msg.subject) && this.expectedAckIds.has(msg.from) && targets.includes(this.godId)) {
+      console.log(`[closing-time] ACK from=${msg.from} acked=${[...this.acked, msg.from].join(',')} expected=${[...this.expectedAckIds].join(',')}`);
       if (!this.acked.has(msg.from)) {
         this.acked.add(msg.from);
         this.emitState('progress');
@@ -189,8 +217,18 @@ export class ClosingTimeController {
       // ACK can never arrive and their session is gone either way.
       const reg = this.hive.registry();
       const liveNow = new Set(this.getLiveAgentIds());
-      const pending = [...this.workers].filter(
+      // Only expectedAckIds are waited on — skipped (quota-blocked) are never
+      // in expectedAckIds and therefore can never be in pending.
+      const pending = [...this.expectedAckIds].filter(
         (id) => !this.acked.has(id) && liveNow.has(id) && !reg.agents[id]?.archived
+      );
+      console.log(
+        `[closing-time] COMPLETE gate: ` +
+        `expected=${[...this.expectedAckIds].join(',')} ` +
+        `acked=${[...this.acked].join(',')} ` +
+        `liveNow=${[...liveNow].join(',')} ` +
+        `pending=${JSON.stringify(pending)} ` +
+        `completion=${pending.length === 0 ? 'GO' : 'WAIT'}`
       );
       if (pending.length > 0) {
         const names = pending.map((id) => `${reg.agents[id]?.name ?? id} (${id})`).join(', ');
@@ -231,7 +269,12 @@ export class ClosingTimeController {
   }
 
   private emitState(phase: ClosingTimePhase): void {
-    const ev: ClosingTimeEvent = { phase, acked: this.acked.size, total: this.workers.size };
+    const ev: ClosingTimeEvent = {
+      phase,
+      acked: this.acked.size,
+      total: this.expectedAckIds.size,  // UI denominator = expected (excludes skipped)
+      skipped: this.skippedIds.size
+    };
     try { this.getWebContents()?.send('app:closingTime', ev); } catch { /* window tore down */ }
   }
 }

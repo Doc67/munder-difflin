@@ -60,6 +60,7 @@ import { RosterStore } from './roster';
 import { ControlRegistry } from './control';
 import { CodexRateLimitService } from './quotaService';
 import { QuotaResetWatcher } from './quotaResetWatcher';
+import { QuotaBlockRegistry, parseQuotaExhaustion } from './quotaBlock';
 import type { QuotaState } from '../shared/quota';
 import { fetchHireManifest, readHireManifestFile } from './hire';
 import { parseHireDeepLink, type HireManifest } from '../shared/hire';
@@ -268,6 +269,12 @@ const hookServer = new HookServer(hive, () => liveWebContents(), () => readConfi
 let quotaState: QuotaState = { claude: null, codex: null };
 let codexRl: CodexRateLimitService | null = null;
 const resetWatcher = new QuotaResetWatcher();
+const quotaBlockRegistry = new QuotaBlockRegistry();
+
+const pushQuotaBlock = (agentId: string): void => {
+  const info = quotaBlockRegistry.get(agentId);
+  try { liveWebContents()?.send('quota:blockState', { agentId, info }); } catch { /* window gone */ }
+};
 const memory = new MemoryManager(
   () => readConfig().harnessHome,
   () => { const c = readConfig(); return { enabled: c.semanticMemory !== false, model: c.embeddingModel ?? 'minilm' }; }
@@ -399,10 +406,17 @@ function teardownPty(id: string): void {
   try { integrationBroker.revoke(id); } catch { /* best-effort */ }
   // 1) Archive the agent — retained + flagged; only live-PTY agents are active.
   const agentId = ptyToAgent.get(id);
+  ptyManager.removeOutputMonitor(id);
   if (agentId) {
     ptyToAgent.delete(id);
     // Drop breaker state so a dead agent can't leak/zombie a tripped level.
     try { breaker.forget(agentId); } catch { /* best-effort */ }
+    // Clear quota block state and any pending reset timer.
+    // Push the clear to the renderer so it doesn't retain stale quotaBlock state
+    // after the PTY exits (e.g. auto-revive respawns the agent mid-block).
+    quotaBlockRegistry.clear(agentId);
+    resetWatcher.cancel(`quota-block:${agentId}`);
+    pushQuotaBlock(agentId);
     // W1 — kill this agent's proxy-bridge sidecar (qwen), if any, so a dead
     // PTY never leaves an orphan loopback listener. No-op for non-proxy agents.
     try { hive.stopProxyBridge(agentId); } catch (e) { console.error('[hive] stopProxyBridge failed:', e); }
@@ -2717,6 +2731,30 @@ async function spawnAgentCore(opts: AgentSpawnOptions, owner: Electron.WebConten
   }
   const res = ptyManager.spawn(opts, owner);
   if (res.ok) analytics.track('agent_spawned', { provider });
+  // Register a quota-exhaustion output monitor for hive agents. A rolling 2KB
+  // buffer catches messages that arrive across multiple small PTY chunks.
+  if (res.ok && opts.hive?.id) {
+    const monitorAgentId = opts.hive.id;
+    const monitorProvider = provider;
+    const ptyId = opts.id;
+    let scanBuf = '';
+    ptyManager.addOutputMonitor(ptyId, (chunk) => {
+      scanBuf = (scanBuf + chunk).slice(-2048);
+      // Only fire once per block (until cleared).
+      if (quotaBlockRegistry.get(monitorAgentId)) return;
+      const info = parseQuotaExhaustion(scanBuf, monitorProvider);
+      if (!info) return;
+      quotaBlockRegistry.set(monitorAgentId, info);
+      pushQuotaBlock(monitorAgentId);
+      // Schedule local auto-recovery when resetsAt is known and in the future.
+      if (info.resetsAt != null) {
+        resetWatcher.watch(`quota-block:${monitorAgentId}`, info.resetsAt, () => {
+          quotaBlockRegistry.clear(monitorAgentId);
+          pushQuotaBlock(monitorAgentId);
+        });
+      }
+    });
+  }
   syncKeepAwake(); // arm the power-save blocker while ≥1 agent PTY is alive (#18)
   // Hand the resolved worktree path back to the renderer so it can persist it on
   // the agent (only set when isolation actually provisioned a worktree above).
@@ -3071,7 +3109,9 @@ ipcMain.handle('hive:board', () => hive.board());
 ipcMain.handle('hive:tasks', () => hive.tasks());
 ipcMain.handle('hive:log', (_evt, n: unknown) => hive.logTail(typeof n === 'number' ? n : 200));
 ipcMain.handle('hive:memory', (_evt, id: unknown) => (typeof id === 'string' ? hive.memory(id) : ''));
-ipcMain.handle('hive:inbox', (_evt, id: unknown) => (typeof id === 'string' ? hive.inbox(id) : []));
+ipcMain.handle('hive:inbox', (_evt, id: unknown, includeDone?: unknown) => (
+  typeof id === 'string' ? hive.inbox(id, includeDone === true) : []
+));
 // Voice read-layer: recent message CONTENT (inbox/outbox bodies), REDACTED
 // main-side by hive.voiceMessages(). The renderer/voice layer never sees a raw
 // body — secrets are stripped here, before the result crosses IPC.
@@ -3267,7 +3307,9 @@ const closingTime = new ClosingTimeController(
   () => teardownAndQuit(),
   // #7C.2 steering — the graceful interrupt that reaches deeply busy agents
   // at their next hook boundary instead of waiting for a Stop.
-  control
+  control,
+  // Quota-blocked agents cannot process closing-time messages — skip them.
+  () => quotaBlockRegistry.blockedIds()
 );
 hive.setRoutedObserver((msg, targets) => closingTime.onRouted(msg, targets));
 ipcMain.handle('app:startClosingTime', () => closingTime.start());
@@ -3579,6 +3621,15 @@ ipcMain.handle('slack:setConfig', (_evt, patch: unknown) => {
 /** Point-in-time snapshot — the renderer calls this on mount, then stays live
  *  via the quota:updated push channel. */
 ipcMain.handle('quota:get', () => quotaState);
+ipcMain.handle('quota:blockGet', (_evt, agentId: unknown) =>
+  typeof agentId === 'string' ? quotaBlockRegistry.get(agentId) : null
+);
+ipcMain.handle('quota:blockClear', (_evt, agentId: unknown) => {
+  if (typeof agentId !== 'string') return;
+  quotaBlockRegistry.clear(agentId);
+  resetWatcher.cancel(`quota-block:${agentId}`);
+  pushQuotaBlock(agentId);
+});
 
 // ─── IPC: Triggers — context (auto-compact / auto-clear) ────────────────────
 ipcMain.handle('triggers:getContext', () => readConfig().contextTrigger ?? DEFAULT_CONTEXT_TRIGGER);

@@ -157,7 +157,7 @@ export function App() {
   // tears down and quits by itself moments later.
   useEffect(() => window.cth.onClosingTime?.((ev) => {
     if (ev.phase === 'cancelled') { setClosing(null); return; }
-    setClosing({ phase: ev.phase, acked: ev.acked, total: ev.total });
+    setClosing({ phase: ev.phase, acked: ev.acked, total: ev.total, skipped: ev.skipped });
     if (ev.phase === 'started' || ev.phase === 'progress') setQuitWarn((w) => w ?? { ptyCount: 0 });
   }), []);
 

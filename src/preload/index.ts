@@ -6,8 +6,8 @@ import type { IntegrationRecord, IntegrationTemplate } from '../shared/integrati
 export type { IntegrationRecord, IntegrationTemplate } from '../shared/integrations';
 import type { UpdateStatus } from '../shared/updateState';
 export type { UpdateStatus } from '../shared/updateState';
-import type { QuotaState } from '../shared/quota';
-export type { QuotaState } from '../shared/quota';
+import type { QuotaState, QuotaBlockInfo } from '../shared/quota';
+export type { QuotaState, QuotaBlockInfo } from '../shared/quota';
 import type {
   ContextRule, ContextTriggerConfig, OrgTriggerConfig, TriggerHistoryEntry, WebhookTrigger
 } from '../shared/triggers';
@@ -474,6 +474,8 @@ export interface ClosingTimeEvent {
   /** Workers that have ACKed so far / total workers being waited on. */
   acked: number;
   total: number;
+  /** Workers skipped because they are quota-blocked and cannot process messages. */
+  skipped: number;
 }
 
 /** Per-agent operator-control state (#7C.1–7C.3). */
@@ -698,7 +700,7 @@ const api = {
   hiveTasks: (): Promise<unknown> => ipcRenderer.invoke('hive:tasks'),
   hiveLog: (n?: number): Promise<unknown[]> => ipcRenderer.invoke('hive:log', n ?? 200),
   hiveMemory: (id: string): Promise<string> => ipcRenderer.invoke('hive:memory', id),
-  hiveInbox: (id: string): Promise<HiveMessage[]> => ipcRenderer.invoke('hive:inbox', id),
+  hiveInbox: (id: string, includeDone?: boolean): Promise<HiveMessage[]> => ipcRenderer.invoke('hive:inbox', id, includeDone),
   /** Voice read-layer: recent message CONTENT (inbox/outbox bodies), REDACTED in
    *  main. Pass { id } for one message, { agentId } to scope to one mailbox, or
    *  {} for the whole floor. Backs Realtime Michael's get_messages. The renderer
@@ -1295,6 +1297,20 @@ const api = {
     const listener = (_e: IpcRendererEvent, payload: QuotaState) => cb(payload);
     ipcRenderer.on('quota:updated', listener);
     return () => ipcRenderer.removeListener('quota:updated', listener);
+  },
+
+  // ─── Provider quota exhaustion block state ────────────────────────────────
+  /** Point-in-time block state for one agent (null = not blocked). */
+  quotaBlockGet: (agentId: string): Promise<QuotaBlockInfo | null> =>
+    ipcRenderer.invoke('quota:blockGet', agentId),
+  /** Clear the quota block for an agent (manual retry / provider upgraded). */
+  quotaBlockClear: (agentId: string): Promise<void> =>
+    ipcRenderer.invoke('quota:blockClear', agentId),
+  /** Subscribe to quota block state changes; returns an unsubscribe fn. */
+  onQuotaBlockState: (cb: (state: { agentId: string; info: QuotaBlockInfo | null }) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, state: { agentId: string; info: QuotaBlockInfo | null }) => cb(state);
+    ipcRenderer.on('quota:blockState', listener);
+    return () => ipcRenderer.removeListener('quota:blockState', listener);
   }
 };
 

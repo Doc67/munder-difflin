@@ -5,6 +5,7 @@ import type { ThemeId } from '@/scene/office/themeRegistry';
 import type { StatusKind } from '@/components/PixelBadge';
 import type { AgentProvider } from '@shared/agentProvider';
 import type { HireManifest } from '@shared/hire';
+import type { QuotaBlockInfo } from '@shared/quota';
 import { DEFAULT_ORG_TRIGGER, type OrgTriggerConfig, type WebhookTrigger } from '@shared/triggers';
 import { isCompactionCommand } from '@shared/providerAutomation';
 
@@ -92,6 +93,9 @@ export interface Agent {
    *  positional seed. useHive types it once after boot-grace then clears it.
    *  Ephemeral spawn state — not persisted. (ondev-b) */
   seedPrompt?: string;
+  /** Set when the agent's CLI has reported provider quota exhaustion. Cleared
+   *  automatically when resetsAt elapses or when the user clicks "retry". */
+  quotaBlock?: QuotaBlockInfo;
 }
 
 export interface FeedEntry {
@@ -282,7 +286,10 @@ const LS_QUEUES = 'cth.messageQueues';
 // Fields that are large or transient — not worth persisting across reloads.
 // contextTokens/contextLimit describe a LIVE session; persisting them showed a
 // dead session's context gauge after a restart until the poll caught up.
-type PersistedAgent = Omit<Agent, 'recentAssistantText' | 'recentTextTs' | 'blockReason' | 'contextTokens' | 'contextLimit' | 'seedPrompt'>;
+// quotaBlock is runtime-only: the main registry is the source of truth and
+// pushes state changes to the renderer. Persisting it would leave a stale
+// QUOTA BLOCKED badge after an app restart (when the main registry is fresh).
+type PersistedAgent = Omit<Agent, 'recentAssistantText' | 'recentTextTs' | 'blockReason' | 'contextTokens' | 'contextLimit' | 'seedPrompt' | 'quotaBlock'>;
 
 // ─── The roster mirror ──────────────────────────────────────────────────────
 //
