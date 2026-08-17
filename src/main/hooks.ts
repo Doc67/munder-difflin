@@ -44,10 +44,11 @@ interface HookPayload {
   output?: number;
   cache_read?: number;
   cache_creation?: number;
-  /** Status-line payloads only: live account-level rate limits (Claude Max / Pro). */
+  /** Status-line payloads only: live account-level rate limits (Claude Max / Pro).
+   *  resets_at arrives as Unix epoch SECONDS (number) from Claude Code. */
   rate_limits?: {
-    five_hour?: { used_percentage?: number; resets_at?: string | null };
-    seven_day?: { used_percentage?: number; resets_at?: string | null };
+    five_hour?: { used_percentage?: number; resets_at?: string | number | null };
+    seven_day?: { used_percentage?: number; resets_at?: string | number | null };
   };
 }
 
@@ -171,14 +172,23 @@ export class HookServer {
       if (rl) {
         const fh = rl.five_hour;
         const sd = rl.seven_day;
-        console.log('[quota:claude] raw rate_limits fh:', JSON.stringify(fh), 'sd:', JSON.stringify(sd));
+        // Normalize resets_at: Claude Code sends Unix epoch SECONDS (number).
+        // Convert once here to ISO string so all downstream new Date(str) calls
+        // are correct. An ISO string passes through unchanged.
+        const toResetsAt = (v: string | number | null | undefined): string | null => {
+          if (v == null) return null;
+          if (typeof v === 'number') return new Date(v * 1000).toISOString();
+          return v;
+        };
+        const fhResetsAt = toResetsAt(fh?.resets_at);
+        const sdResetsAt = toResetsAt(sd?.resets_at);
         if (typeof fh?.used_percentage === 'number' || typeof sd?.used_percentage === 'number') {
           const snap: ClaudeQuotaSnapshot = {
             fiveHour: typeof fh?.used_percentage === 'number'
-              ? { usedPct: fh.used_percentage, resetsAt: fh.resets_at ?? null }
+              ? { usedPct: fh.used_percentage, resetsAt: fhResetsAt }
               : null,
             sevenDay: typeof sd?.used_percentage === 'number'
-              ? { usedPct: sd.used_percentage, resetsAt: sd.resets_at ?? null }
+              ? { usedPct: sd.used_percentage, resetsAt: sdResetsAt }
               : null
           };
           this.claudeQuota = snap;

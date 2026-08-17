@@ -14,8 +14,8 @@ export class QuotaResetWatcher {
   /**
    * Watch a rate-limit bucket.
    * - If resetsAtMs is null/undefined: cancel any existing timer for this key.
-   * - If resetsAtMs is already past: cb fires on the next microtask so the caller
-   *   can finish its synchronous state update first.
+   * - If resetsAtMs is already past: no-op — the hook payload already reflects the
+   *   post-reset usage; let the real data speak for itself.
    * - If resetsAtMs is in the future: a timer is scheduled (clamped to Node.js
    *   max-safe setTimeout of ~24.8 days so weekly windows work fine).
    *
@@ -27,8 +27,9 @@ export class QuotaResetWatcher {
 
     const delay = resetsAtMs - Date.now();
     if (delay <= 0) {
-      // Window already expired — correct on next microtask
-      void Promise.resolve().then(cb);
+      // resetsAt is already past — the hook payload itself reflects current usage,
+      // so we do NOT zero out locally. The next real hook will report the true value.
+      return;
     } else {
       const t = setTimeout(() => {
         this.timers.delete(key);
