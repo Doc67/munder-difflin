@@ -18,6 +18,7 @@ import type { HarnessConfig } from './config';
 import type { ControlRegistry } from './control';
 import type { CircuitBreaker } from './breaker';
 import { estimateCostUsd } from './pricing';
+import type { ClaudeQuotaSnapshot } from '../shared/quota';
 
 interface HookPayload {
   hook_event_name?: string;
@@ -43,6 +44,11 @@ interface HookPayload {
   output?: number;
   cache_read?: number;
   cache_creation?: number;
+  /** Status-line payloads only: live account-level rate limits (Claude Max / Pro). */
+  rate_limits?: {
+    five_hour?: { used_percentage?: number; resets_at?: string | null };
+    seven_day?: { used_percentage?: number; resets_at?: string | null };
+  };
 }
 
 export class HookServer {
@@ -58,6 +64,8 @@ export class HookServer {
    *  get_agent_detail / list_agents) can report "how full is each agent's context"
    *  without depending on a renderer round-trip. */
   private contextById = new Map<string, { tokens: number; limit: number; ts: number }>();
+  private claudeQuota: ClaudeQuotaSnapshot | null = null;
+  private claudeQuotaCb?: (snap: ClaudeQuotaSnapshot) => void;
 
   constructor(
     private hive: HiveManager,
@@ -112,6 +120,17 @@ export class HookServer {
     return this.contextById.get(agentId);
   }
 
+  /** Register a callback fired whenever the Claude account rate-limit snapshot
+   *  is refreshed from a Status hook payload.  Only one callback is supported. */
+  onClaudeQuota(cb: (snap: ClaudeQuotaSnapshot) => void): void {
+    this.claudeQuotaCb = cb;
+  }
+
+  /** Latest Claude account rate-limit snapshot, or null before the first Status tick. */
+  claudeQuotaSnapshot(): ClaudeQuotaSnapshot | null {
+    return this.claudeQuota;
+  }
+
   private handle(p: HookPayload): unknown {
     const agentId = p.agent_id ?? undefined;
     const event = p.hook_event_name ?? 'Unknown';
@@ -145,6 +164,25 @@ export class HookServer {
           tokens: cw.total_input_tokens,
           limit: cw.context_window_size
         });
+      }
+      // Extract account-level rate limits when present — these are account-global,
+      // so any one Claude agent's Status tick updates the shared quota display.
+      const rl = p.rate_limits;
+      if (rl) {
+        const fh = rl.five_hour;
+        const sd = rl.seven_day;
+        if (typeof fh?.used_percentage === 'number' || typeof sd?.used_percentage === 'number') {
+          const snap: ClaudeQuotaSnapshot = {
+            fiveHour: typeof fh?.used_percentage === 'number'
+              ? { usedPct: fh.used_percentage, resetsAt: fh.resets_at ?? null }
+              : null,
+            sevenDay: typeof sd?.used_percentage === 'number'
+              ? { usedPct: sd.used_percentage, resetsAt: sd.resets_at ?? null }
+              : null
+          };
+          this.claudeQuota = snap;
+          this.claudeQuotaCb?.(snap);
+        }
       }
       return {};
     }

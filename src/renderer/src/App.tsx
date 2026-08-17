@@ -16,6 +16,7 @@ import { QuitWarningModal, type ClosingTimeState } from '@/components/QuitWarnin
 import { CompletionToast } from '@/realtime/CompletionToast';
 import { UpdateToast } from '@/components/UpdateToast';
 import { UpdateBadge } from '@/components/UpdateBadge';
+import { QuotaDisplay } from '@/components/QuotaDisplay';
 import { useAppTheme, toggleAppTheme } from '@/design/theme';
 import { SettingsModal, type Section as SettingsSection } from '@/components/SettingsModal';
 import { PixelPanel } from '@/components/PixelPanel';
@@ -278,6 +279,7 @@ export function App() {
         }}>
           {config.autoMode ? 'auto mode on' : 'auto mode off'}
         </span>
+        <QuotaDisplay className="cth-titlebar-nodrag" />
         {/* v0.3.4: theme + fullscreen live HERE (top right), not buried in the
             terminal header — and the theme darkens the whole app, terminals
             included (design/theme.ts + tokens.css dark block). */}

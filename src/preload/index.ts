@@ -6,6 +6,8 @@ import type { IntegrationRecord, IntegrationTemplate } from '../shared/integrati
 export type { IntegrationRecord, IntegrationTemplate } from '../shared/integrations';
 import type { UpdateStatus } from '../shared/updateState';
 export type { UpdateStatus } from '../shared/updateState';
+import type { QuotaState } from '../shared/quota';
+export type { QuotaState } from '../shared/quota';
 import type {
   ContextRule, ContextTriggerConfig, OrgTriggerConfig, TriggerHistoryEntry, WebhookTrigger
 } from '../shared/triggers';
@@ -1282,7 +1284,18 @@ const api = {
     ipcRenderer.invoke('update:download'),
   /** Open the project's releases page for a notify-only update. */
   updateOpenRelease: (url?: string): Promise<{ ok: boolean }> =>
-    ipcRenderer.invoke('update:openRelease', url)
+    ipcRenderer.invoke('update:openRelease', url),
+
+  // ─── Provider quota (Claude rate-limit + Codex app-server) ──────────────────
+  /** Point-in-time quota snapshot — seed value on mount. */
+  quotaGet: (): Promise<QuotaState> =>
+    ipcRenderer.invoke('quota:get'),
+  /** Subscribe to live quota updates; returns an unsubscribe fn. */
+  onQuotaUpdated: (cb: (s: QuotaState) => void): (() => void) => {
+    const listener = (_e: IpcRendererEvent, payload: QuotaState) => cb(payload);
+    ipcRenderer.on('quota:updated', listener);
+    return () => ipcRenderer.removeListener('quota:updated', listener);
+  }
 };
 
 contextBridge.exposeInMainWorld('cth', api);

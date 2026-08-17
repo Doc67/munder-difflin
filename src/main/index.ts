@@ -58,6 +58,8 @@ import * as integrations from './integrations';
 import { validateBaseUrl, buildAuthHeaders, resolveUpstreamUrl, secretRefFor, INTEGRATION_TEMPLATES } from '../shared/integrations';
 import { RosterStore } from './roster';
 import { ControlRegistry } from './control';
+import { CodexRateLimitService } from './quotaService';
+import type { QuotaState } from '../shared/quota';
 import { fetchHireManifest, readHireManifestFile } from './hire';
 import { parseHireDeepLink, type HireManifest } from '../shared/hire';
 import { ClosingTimeController } from './closingTime';
@@ -261,6 +263,9 @@ telemetry.onApiError((agentId) => breaker.recordError(agentId));
 // HookServer needs BOTH: Oscar's control registry (HITL pause/gate/steer/halt via
 // hook returns) AND Jim's breaker (feed recordToolUse on each PostToolUse).
 const hookServer = new HookServer(hive, () => liveWebContents(), () => readConfig(), control, breaker);
+// Quota state — shared across Claude (hook-derived) and Codex (app-server-derived).
+let quotaState: QuotaState = { claude: null, codex: null };
+let codexRl: CodexRateLimitService | null = null;
 const memory = new MemoryManager(
   () => readConfig().harnessHome,
   () => { const c = readConfig(); return { enabled: c.semanticMemory !== false, model: c.embeddingModel ?? 'minilm' }; }
@@ -3218,6 +3223,7 @@ function teardownAndQuit(): void {
   try { integrationBroker.stop(); } catch (e) { console.error('[quit] broker.stop:', e); }
   try { hive.stopRouter(); } catch (e) { console.error('[quit] stopRouter:', e); }
   try { hookServer.stop(); } catch (e) { console.error('[quit] hookServer.stop:', e); }
+  try { codexRl?.stop(); } catch (e) { console.error('[quit] codexRl.stop:', e); }
   try { telemetry.stop(); } catch (e) { console.error('[quit] telemetry.stop:', e); }
   try { stopSlackServer(); } catch (e) { console.error('[quit] slack.stop:', e); }
   try { stopWebhookServer(); } catch (e) { console.error('[quit] webhook.stop:', e); }
@@ -3565,6 +3571,11 @@ ipcMain.handle('slack:setConfig', (_evt, patch: unknown) => {
   if (!cfg.slackEnabled || !cfg.slackSigningSecret) stopSlackServer();
   return { ok: true };
 });
+
+// ─── IPC: quota (Claude rate-limit from Status hook + Codex app-server) ─────
+/** Point-in-time snapshot — the renderer calls this on mount, then stays live
+ *  via the quota:updated push channel. */
+ipcMain.handle('quota:get', () => quotaState);
 
 // ─── IPC: Triggers — context (auto-compact / auto-clear) ────────────────────
 ipcMain.handle('triggers:getContext', () => readConfig().contextTrigger ?? DEFAULT_CONTEXT_TRIGGER);
@@ -4410,6 +4421,17 @@ function bootstrapHiveServices(): void {
   // reply still belongs in the history.
   if ((readConfig().webhookTriggers ?? []).length > 0) startWebhookDoneObserver();
   hookServer.start();
+  // Wire Claude rate-limit quota from HookServer Status payloads.
+  hookServer.onClaudeQuota((snap) => {
+    quotaState = { ...quotaState, claude: snap };
+    try { liveWebContents()?.send('quota:updated', quotaState); } catch { /* window torn down */ }
+  });
+  // Start the Codex app-server quota service.
+  codexRl = new CodexRateLimitService((snap) => {
+    quotaState = { ...quotaState, codex: snap };
+    try { liveWebContents()?.send('quota:updated', quotaState); } catch { /* window torn down */ }
+  });
+  codexRl.start();
   // Bind the telemetry collector BEFORE the renderer spawns any agent, then point
   // the hive at it so every subsequent spawn is instrumented. Best-effort — a bind
   // failure just leaves telemetry off (transcript reconciler stays). No breaker.start():
