@@ -11,9 +11,23 @@ function windowLabel(mins: number | null): string {
   return h < 24 ? `${Math.round(h)}h` : 'W';
 }
 
+function timeUntil(resetsAt: string | null): string {
+  if (!resetsAt) return '';
+  const ms = new Date(resetsAt).getTime() - Date.now();
+  if (isNaN(ms) || ms <= 0) return '';
+  const totalMins = Math.round(ms / 60_000);
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  return h > 0 ? (m > 0 ? `${h}h${m}m` : `${h}h`) : `${m}m`;
+}
+
 function claudeText(snap: ClaudeQuotaSnapshot): string {
   const parts: string[] = [];
-  if (snap.fiveHour) parts.push(`5h ${remaining(snap.fiveHour.usedPct)}`);
+  if (snap.fiveHour) {
+    const pct = remaining(snap.fiveHour.usedPct);
+    const until = timeUntil(snap.fiveHour.resetsAt);
+    parts.push(until ? `5h ${pct} ↻${until}` : `5h ${pct}`);
+  }
   if (snap.sevenDay) parts.push(`W ${remaining(snap.sevenDay.usedPct)}`);
   return parts.length ? parts.join(' · ') : '--';
 }

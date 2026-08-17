@@ -171,6 +171,7 @@ export class HookServer {
       if (rl) {
         const fh = rl.five_hour;
         const sd = rl.seven_day;
+        console.log('[quota:claude] raw rate_limits fh:', JSON.stringify(fh), 'sd:', JSON.stringify(sd));
         if (typeof fh?.used_percentage === 'number' || typeof sd?.used_percentage === 'number') {
           const snap: ClaudeQuotaSnapshot = {
             fiveHour: typeof fh?.used_percentage === 'number'
