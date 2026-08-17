@@ -59,6 +59,7 @@ import { validateBaseUrl, buildAuthHeaders, resolveUpstreamUrl, secretRefFor, IN
 import { RosterStore } from './roster';
 import { ControlRegistry } from './control';
 import { CodexRateLimitService } from './quotaService';
+import { QuotaResetWatcher } from './quotaResetWatcher';
 import type { QuotaState } from '../shared/quota';
 import { fetchHireManifest, readHireManifestFile } from './hire';
 import { parseHireDeepLink, type HireManifest } from '../shared/hire';
@@ -266,6 +267,7 @@ const hookServer = new HookServer(hive, () => liveWebContents(), () => readConfi
 // Quota state — shared across Claude (hook-derived) and Codex (app-server-derived).
 let quotaState: QuotaState = { claude: null, codex: null };
 let codexRl: CodexRateLimitService | null = null;
+const resetWatcher = new QuotaResetWatcher();
 const memory = new MemoryManager(
   () => readConfig().harnessHome,
   () => { const c = readConfig(); return { enabled: c.semanticMemory !== false, model: c.embeddingModel ?? 'minilm' }; }
@@ -3224,6 +3226,7 @@ function teardownAndQuit(): void {
   try { hive.stopRouter(); } catch (e) { console.error('[quit] stopRouter:', e); }
   try { hookServer.stop(); } catch (e) { console.error('[quit] hookServer.stop:', e); }
   try { codexRl?.stop(); } catch (e) { console.error('[quit] codexRl.stop:', e); }
+  try { resetWatcher.destroy(); } catch (e) { console.error('[quit] resetWatcher.destroy:', e); }
   try { telemetry.stop(); } catch (e) { console.error('[quit] telemetry.stop:', e); }
   try { stopSlackServer(); } catch (e) { console.error('[quit] slack.stop:', e); }
   try { stopWebhookServer(); } catch (e) { console.error('[quit] webhook.stop:', e); }
@@ -4421,15 +4424,50 @@ function bootstrapHiveServices(): void {
   // reply still belongs in the history.
   if ((readConfig().webhookTriggers ?? []).length > 0) startWebhookDoneObserver();
   hookServer.start();
+  const pushQuota = (): void => {
+    try { liveWebContents()?.send('quota:updated', quotaState); } catch { /* window torn down */ }
+  };
+
   // Wire Claude rate-limit quota from HookServer Status payloads.
   hookServer.onClaudeQuota((snap) => {
     quotaState = { ...quotaState, claude: snap };
-    try { liveWebContents()?.send('quota:updated', quotaState); } catch { /* window torn down */ }
+    pushQuota();
+
+    // Schedule local resets when windows expire (no API call — renderer stays correct).
+    const fhMs = snap.fiveHour?.resetsAt ? new Date(snap.fiveHour.resetsAt).getTime() : null;
+    resetWatcher.watch('claude-5h', fhMs, () => {
+      if (!quotaState.claude?.fiveHour) return;
+      quotaState = { ...quotaState, claude: { ...quotaState.claude, fiveHour: { usedPct: 0, resetsAt: null } } };
+      pushQuota();
+    });
+
+    const sdMs = snap.sevenDay?.resetsAt ? new Date(snap.sevenDay.resetsAt).getTime() : null;
+    resetWatcher.watch('claude-7d', sdMs, () => {
+      if (!quotaState.claude?.sevenDay) return;
+      quotaState = { ...quotaState, claude: { ...quotaState.claude, sevenDay: { usedPct: 0, resetsAt: null } } };
+      pushQuota();
+    });
   });
+
   // Start the Codex app-server quota service.
   codexRl = new CodexRateLimitService((snap) => {
     quotaState = { ...quotaState, codex: snap };
-    try { liveWebContents()?.send('quota:updated', quotaState); } catch { /* window torn down */ }
+    pushQuota();
+
+    // Schedule local resets for Codex buckets (resetsAt is Unix seconds).
+    const pMs = snap.primary?.resetsAt != null ? snap.primary.resetsAt * 1000 : null;
+    resetWatcher.watch('codex-primary', pMs, () => {
+      if (!quotaState.codex?.primary) return;
+      quotaState = { ...quotaState, codex: { ...quotaState.codex, primary: { ...quotaState.codex.primary, usedPct: 0, resetsAt: null } } };
+      pushQuota();
+    });
+
+    const sMs = snap.secondary?.resetsAt != null ? snap.secondary.resetsAt * 1000 : null;
+    resetWatcher.watch('codex-secondary', sMs, () => {
+      if (!quotaState.codex?.secondary) return;
+      quotaState = { ...quotaState, codex: { ...quotaState.codex, secondary: { ...quotaState.codex.secondary, usedPct: 0, resetsAt: null } } };
+      pushQuota();
+    });
   });
   codexRl.start();
   // Bind the telemetry collector BEFORE the renderer spawns any agent, then point

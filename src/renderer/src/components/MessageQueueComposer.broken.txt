@@ -9,7 +9,7 @@ import { useTerminalFontSize } from './terminalFontSize';
 
 const EMPTY_QUEUE: QueuedMessage[] = [];
 
-// Unique sentinels used for duplicate-detection — must stay stable.
+// Unique sentinel used for duplicate-detection — must stay stable.
 const FINISH_TASK_SENTINEL = '### FINISH CURRENT TASK';
 const APPROVE_MERGE_SENTINEL = '### APPROVE & MERGE';
 
@@ -250,7 +250,9 @@ export function MessageQueueComposer({ agent }: MessageQueueComposerProps) {
     setAttachments([]);
   };
 
-  // ── Finish Task (worker agents only) ─────────────────────────────────────
+  // ── Finish Task ────────────────────────────────────────────────────────────
+  // Duplicate protection: button is disabled while a finish-task message is
+  // already queued for this agent (prevents accidental double-enqueue).
   const isFinishPending = queue.some((m) => m.text.startsWith(FINISH_TASK_SENTINEL));
 
   const finishTask = () => {
@@ -259,9 +261,9 @@ export function MessageQueueComposer({ agent }: MessageQueueComposerProps) {
   };
 
   // ── Approve & Merge (Michael / god only) ──────────────────────────────────
-  // Polls god's own inbox for completion reports from any worker that include a
-  // successfully-pushed branch + commit. Enqueues the merge instruction to
-  // Michael himself (self-instruction via his own queue).
+  // Shown only in Michael's Command Center panel. Polls god's own inbox for
+  // completion reports from any worker agent that include a successfully-pushed
+  // branch + commit. Enqueues the merge instruction to Michael himself.
   const [completedTask, setCompletedTask] = useState<{ branch: string; commit: string } | null>(null);
 
   useEffect(() => {
@@ -272,7 +274,8 @@ export function MessageQueueComposer({ agent }: MessageQueueComposerProps) {
 
     const scan = async () => {
       try {
-        const msgs = await window.cth.hiveInbox(agent.id);
+        const msgs = await window.cth.hiveInbox(agent.id); // god reads own inbox
+        // Most-recent first: any worker's valid, pushed completion report.
         const report = [...msgs].reverse().find(
           (m) => m.from !== agent.id && BRANCH_RE.test(m.body) && COMMIT_RE.test(m.body) && PUSH_OK_RE.test(m.body)
         );
@@ -529,15 +532,16 @@ export function MessageQueueComposer({ agent }: MessageQueueComposerProps) {
               ✓ finish task
             </PixelButton>
           )}
-          {agent.isGod && (
+          {!agent.isGod && (
             <PixelButton
               variant="primary"
               size="sm"
               onClick={approveAndMerge}
               disabled={!canMerge}
               title={
-                isMergePending ? 'Merge request already queued' :
-                !completedTask ? 'No pushed completion report in inbox — worker must run Finish Task first' :
+                !godAgent ? 'Michael is not available' :
+                isMergePending ? 'Merge request already queued for Michael' :
+                !completedTask ? 'No pushed completion report found — run Finish Task first' :
                 `Merge ${completedTask.branch} (${completedTask.commit.slice(0, 8)}) into main`
               }
             >
