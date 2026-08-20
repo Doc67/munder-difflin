@@ -615,11 +615,15 @@ export function useHive(config: HarnessConfig | null): void {
       const now = Date.now();
       const { agents, updateAgent } = useStore.getState();
       for (const a of agents) {
-        if (!a.ptyId || a.status !== 'working') continue;
-        // Never fight the breaker pin (a constrained/stopped agent stays 'looping')
-        // or a still-booting agent (its boot sequence is mid-type).
+        if (!a.ptyId) continue;
+        // Quiesce both 'working' agents and 'looping' agents whose breaker has
+        // already recovered. A looping agent with an active constrain/stop pin
+        // must stay looping — the breaker is still in charge. But once the
+        // breaker backs off to healthy/steering the pin is stale and PTY silence
+        // is safe evidence the agent is idle.
         const bl = breakerLevel.current[a.id];
         if (bl === 'constrained' || bl === 'stopped') continue;
+        if (a.status !== 'working' && a.status !== 'looping') continue;
         // Never touch a quota-blocked agent — it is not working, it is blocked.
         if (a.quotaBlock) continue;
         if ((bootGraceUntil.current[a.id] ?? 0) > now) continue;
@@ -654,10 +658,14 @@ export function useHive(config: HarnessConfig | null): void {
         if (a.quotaBlock) continue;
         try {
           const inbox = await window.cth.hiveInbox(a.id);
-          // Nudge on any id we have not nudged for yet. Draining shrinks the set
-          // and introduces nothing new, so it stays quiet; a genuinely new message
-          // fires regardless of how its id happens to sort.
           const seen = nudged.current[a.id] ?? (nudged.current[a.id] = new Set());
+          // Prune IDs that are no longer in inbox (agent already handled them).
+          const inboxIds = new Set(inbox.map((m) => m.id).filter(Boolean) as string[]);
+          for (const id of seen) if (!inboxIds.has(id)) seen.delete(id);
+          // Re-arm: if the agent is looping (breaker-stuck) and still has messages
+          // we already nudged about, forget those nudges so a fresh one can queue.
+          // The RC-4 quiescence fix will flip looping→idle so the nudge can drain.
+          if (a.status === 'looping' && seen.size > 0) seen.clear();
           const fresh = inbox.filter((m) => m.id && !seen.has(m.id));
           if (fresh.length) {
             useStore.getState().enqueueMessage(

@@ -50,7 +50,7 @@ function parseWindow(w: RateLimitWindow | null | undefined): CodexRateLimitWindo
 }
 
 /** Prefer rateLimitsByLimitId['codex'] when present, fall back to rateLimits. */
-function pickSnapshot(result: RateLimitsResult): RateLimitSnapshot {
+export function pickSnapshot(result: RateLimitsResult): RateLimitSnapshot {
   const byId = result.rateLimitsByLimitId;
   if (byId && typeof byId === 'object' && byId['codex']) return byId['codex'];
   return result.rateLimits;
@@ -61,7 +61,7 @@ function pickSnapshot(result: RateLimitsResult): RateLimitSnapshot {
  * Buckets identified by windowDurationMins: 300→5h, ≥9000→weekly.
  * Falls back to positional order when windowDurationMins is absent.
  */
-function parseRateLimitSnapshot(snap: RateLimitSnapshot): CodexQuotaSnapshot {
+export function parseRateLimitSnapshot(snap: RateLimitSnapshot): CodexQuotaSnapshot {
   const windows: RateLimitWindow[] = [snap.primary, snap.secondary]
     .filter((w): w is RateLimitWindow => !!w);
 
@@ -223,6 +223,10 @@ export class CodexRateLimitService {
     const snap = parseRateLimitSnapshot(chosen);
     console.log(TAG, 'snapshot:', JSON.stringify(snap));
     this.onUpdate(snap);
+
+    // Subscribe to live push updates
+    this.notify('account/rateLimits/subscribe', {});
+    console.log(TAG, 'subscribed to account/rateLimits/updated');
   }
 
   private rpc(method: string, params: unknown): Promise<unknown> {
@@ -267,8 +271,14 @@ export class CodexRateLimitService {
     // Push notification: rate limits updated
     if (msg.method === 'account/rateLimits/updated' && msg.params) {
       console.log(TAG, 'push rateLimits/updated');
-      const p = msg.params as { rateLimits?: RateLimitSnapshot };
-      if (p.rateLimits) this.onUpdate(parseRateLimitSnapshot(p.rateLimits));
+      const p = msg.params as Partial<RateLimitsResult>;
+      if (p.rateLimits || p.rateLimitsByLimitId?.['codex']) {
+        const chosen = pickSnapshot({
+          rateLimits: p.rateLimits ?? {} as RateLimitSnapshot,
+          rateLimitsByLimitId: p.rateLimitsByLimitId
+        });
+        this.onUpdate(parseRateLimitSnapshot(chosen));
+      }
     }
   }
 
