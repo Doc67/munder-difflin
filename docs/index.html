@@ -35,7 +35,7 @@
   "url": "https://munderdiffl.in/",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "macOS, Windows, Linux",
-  "softwareVersion": "0.4.3",
+  "softwareVersion": "0.4.4",
   "downloadUrl": "https://github.com/chaitanyagiri/munder-difflin/releases/latest",
   "softwareHelp": "https://github.com/chaitanyagiri/munder-difflin#readme",
   "license": "https://github.com/chaitanyagiri/munder-difflin/blob/main/LICENSE",
@@ -210,35 +210,141 @@
   .btn.sm { font-size: 0.87rem; padding: 8px 14px; }
   .btn .ic { font-size: 1.02em; }
   .btn-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  /* Hero CTAs render identical instead of 196 vs 210: inline-grid keeps the row
+     shrink-to-fit, and equal 1fr columns size themselves to the wider label —
+     no magic width to re-tune when the copy changes. */
+  .hero .btn-row { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
+  .hero .btn-row .btn { justify-content: center; }
   /* Featured-on badges (TAAFT + Product Hunt) — sit where the old status pill
      was, above the hero h1, height-matched to that pill (~30px, slightly
      taller) so the hero rhythm is unchanged. */
   .featured-badges { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 26px; }
   .featured-badges img { height: 34px; width: auto; display: block; border-radius: 6px; }
 
-  /* download dropdown */
-  .dl { position: relative; display: inline-block; }
-  .dl-caret { margin-left: 2px; font-size: 0.75em; }
-  .dl-menu {
-    position: absolute; top: calc(100% + 8px); left: 0; z-index: 60;
-    min-width: 280px; display: none; overflow: hidden;
-    background: var(--surface); border: 1px solid var(--border-strong);
-    border-radius: var(--radius-sm); box-shadow: var(--shadow-soft);
+  /* TAAFT ships exactly one badge asset and it is greyscale, which went dead
+     next to the Product Hunt badge. Rebuilt here in our own tokens, laid out
+     like the PH badge (mark + label over name) so the row reads as a pair.
+     Theme-aware for free: every colour is a var, so it follows the toggle. */
+  .taaft-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 34px; padding: 0 11px; box-sizing: border-box;
+    background: var(--surface); border: 1px solid var(--accent-line);
+    border-radius: 6px; text-decoration: none; white-space: nowrap;
+    transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
   }
-  .dl-menu.right { left: auto; right: 0; }
-  .dl.open .dl-menu { display: block; }
-  .dl-menu a {
+  .taaft-badge:hover { background: var(--accent-soft); border-color: var(--accent); transform: translateY(-1px); }
+  .taaft-badge .tb-mark { color: var(--accent); flex: none; }
+  .taaft-badge .tb-txt { display: flex; flex-direction: column; gap: 1px; line-height: 1; }
+  .taaft-badge .tb-l {
+    font-family: var(--font-mono); font-weight: 600; font-size: 0.46rem;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--faint);
+  }
+  .taaft-badge .tb-n {
+    font-family: var(--font-display); font-weight: 700; font-size: 0.72rem;
+    letter-spacing: -0.015em; color: var(--ink);
+    display: inline-flex; align-items: center; gap: 3px;
+  }
+  .taaft-badge .tb-ai {
+    background: var(--accent-fill); color: var(--accent-ink);
+    border-radius: 3px; padding: 0 3px; font-size: 0.64rem; font-weight: 800;
+  }
+
+  /* download modal — the support ask lives between the click and the platform
+     choice; a small skip link keeps the download genuinely ungated */
+  .smb {
+    position: fixed; inset: 0; z-index: 90;
+    display: none; align-items: center; justify-content: center; padding: 20px;
+    background: rgba(5,7,12,0.55); backdrop-filter: blur(6px);
+  }
+  .smb.open { display: flex; }
+  .smodal {
+    position: relative; width: min(480px, 100%);
+    max-height: calc(100dvh - 40px); overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--border-strong);
+    border-radius: var(--radius); box-shadow: var(--shadow-soft);
+    padding: 30px 26px 26px; text-align: center;
+    animation: sm-in 220ms ease;
+  }
+  @keyframes sm-in { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
+  .sm-close {
+    position: absolute; top: 10px; right: 10px; width: 30px; height: 30px;
+    border-radius: 8px; border: 1px solid var(--border-strong);
+    background: var(--surface); color: var(--muted);
+    font-size: 0.9rem; line-height: 1; cursor: pointer;
+  }
+  .sm-close:hover { color: var(--ink); border-color: var(--accent-line); }
+  .sm-kicker {
+    font-family: var(--font-mono); font-weight: 600; font-size: 0.66rem;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent);
+    display: block; margin-bottom: 10px;
+  }
+  .smodal h3 { font-size: 1.22rem; margin-bottom: 8px; }
+  /* the ask headline stays on ONE line at every width */
+  .smodal h3#smTitle { font-size: clamp(0.95rem, 4vw, 1.22rem); white-space: nowrap; }
+  .smodal p { color: var(--muted); font-size: 0.9rem; max-width: 420px; margin: 0 auto; }
+  .smodal p a { color: var(--ink); }
+  .sm-step { display: none; }
+  .sm-step.on { display: block; }
+  .sm-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; align-items: center; }
+  .sm-actions .btn { width: 100%; max-width: 320px; justify-content: center; }
+  .sm-skip {
+    background: none; border: 0; cursor: pointer; padding: 4px;
+    font-family: var(--font-mono); font-size: 0.76rem; color: var(--faint);
+    text-decoration: underline; text-underline-offset: 3px;
+  }
+  .sm-skip:hover { color: var(--muted); }
+  /* live brass plaque preview — same recipe as docs/wall.html */
+  .sm-plaque {
+    margin: 20px auto 4px; max-width: 300px; border-radius: 8px;
+    padding: 20px 16px 16px; text-align: center; color: #3A2B10;
+    background-image:
+      radial-gradient(circle at 11px 11px, #6B5320 2.2px, #F4E2A1 2.8px, transparent 4.2px),
+      radial-gradient(circle at calc(100% - 11px) 11px, #6B5320 2.2px, #F4E2A1 2.8px, transparent 4.2px),
+      radial-gradient(circle at 11px calc(100% - 11px), #6B5320 2.2px, #F4E2A1 2.8px, transparent 4.2px),
+      radial-gradient(circle at calc(100% - 11px) calc(100% - 11px), #6B5320 2.2px, #F4E2A1 2.8px, transparent 4.2px),
+      linear-gradient(160deg, #EED28A 0%, #D9B75F 38%, #BC9440 62%, #E3C377 100%);
+    border: 1px solid rgba(96,70,22,0.6);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), inset 0 -2px 5px rgba(96,70,22,0.35), 0 6px 16px rgba(0,0,0,0.26);
+  }
+  .sm-plaque .no {
+    font-family: var(--font-mono); font-weight: 700; font-size: 0.58rem;
+    letter-spacing: 0.18em; text-transform: uppercase; color: #6B5320;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.35);
+  }
+  .sm-plaque .nm {
+    display: block; margin-top: 6px; min-height: 1.25em;
+    font-family: var(--font-display); font-weight: 700; font-size: 1.05rem;
+    letter-spacing: 0.02em; text-transform: uppercase; color: #40300F;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.4); overflow-wrap: anywhere;
+  }
+  .sm-name { margin-top: 16px; }
+  .sm-name input {
+    width: 100%; max-width: 320px; padding: 11px 14px; text-align: center;
+    border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
+    background: var(--bg-2); color: var(--ink);
+    font-family: var(--font-body); font-size: 0.95rem;
+  }
+  .sm-name input:focus { outline: 2px solid var(--accent-line); border-color: transparent; }
+  .sm-note {
+    display: block; margin-top: 12px;
+    font-family: var(--font-mono); font-size: 0.72rem; line-height: 1.7; color: var(--faint);
+  }
+  .sm-note b { color: var(--accent); font-weight: 600; }
+  /* platform list inside the modal */
+  .sm-dl { margin-top: 18px; text-align: left; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
+  .sm-dl a {
     display: flex; gap: 12px; align-items: center;
     padding: 12px 14px; text-decoration: none;
     border-bottom: 1px solid var(--border);
   }
-  .dl-menu a:last-child { border-bottom: 0; }
-  .dl-menu a:hover { background: var(--surface-2); }
+  .sm-dl a:last-child { border-bottom: 0; }
+  .sm-dl a:hover { background: var(--surface-2); }
   .dl-ic { font-size: 1.25rem; }
   .dl-txt { display: flex; flex-direction: column; line-height: 1.3; }
   .dl-txt b { font-size: 0.93rem; }
   .dl-txt b em { font-style: normal; color: var(--accent); font-size: 0.78rem; }
   .dl-txt span { font-size: 0.78rem; color: var(--faint); }
+  #smConfetti { position: fixed; inset: 0; z-index: 95; pointer-events: none; }
 
   /* ------- nav ------- */
   nav {
@@ -271,6 +377,11 @@
     transition: border-color 120ms ease, background 120ms ease;
   }
   .theme-toggle:hover { border-color: var(--accent-line); background: var(--accent-soft); }
+  /* SVG sun/moon (never emoji — mobile renders the ☀ glyph as the color emoji).
+     CSS picks the icon from data-theme; sun is the no-attribute fallback. */
+  .theme-toggle svg { width: 17px; height: 17px; display: none; }
+  html:not([data-theme="dark"]) .theme-toggle .ic-sun { display: block; }
+  html[data-theme="dark"] .theme-toggle .ic-moon { display: block; }
   .star-count:empty { display: none; }
   .star-count::before { content: "· "; }
   @media (max-width: 800px) {
@@ -548,8 +659,6 @@
   .pg-label small { font-family: var(--font-body); font-weight: 400; font-size: 0.82rem; letter-spacing: 0; color: var(--faint); }
   .plans2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; flex: 1; }
   .plan > .btn { margin-top: auto; align-self: stretch; text-align: center; justify-content: center; }
-  .plan > .dl { margin-top: auto; display: block; }
-  .plan > .dl > .btn { width: 100%; text-align: center; justify-content: center; }
   .pgroup > .seat-box { margin: -2px 4px 16px; }
   /* seat slider */
   .seat-box { display: grid; gap: 6px; margin: 2px 0 4px; }
@@ -563,6 +672,34 @@
   .seat-scale span.on { color: var(--accent); font-weight: 700; }
   @media (max-width: 1000px) { .pgroups { grid-template-columns: 1fr; } }
   @media (max-width: 620px)  { .plans2 { grid-template-columns: 1fr; } }
+
+  /* ------- FOR THE PROJECT — Founding Supporter strip ------- */
+  .support-strip {
+    margin-top: 22px; text-align: left;
+    border: 1px dashed var(--accent-line); border-radius: var(--radius);
+    background: var(--accent-soft);
+    padding: 20px 22px;
+    display: flex; align-items: center; justify-content: space-between; gap: 22px;
+  }
+  .support-strip .ss-label {
+    display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px;
+    flex-wrap: wrap; white-space: nowrap;
+    font-family: var(--font-mono); font-weight: 600; font-size: 0.7rem;
+    letter-spacing: 0.16em; color: var(--accent);
+  }
+  .support-strip .ss-label small { white-space: normal; }
+  .support-strip .ss-label small { font-family: var(--font-body); font-weight: 400; font-size: 0.82rem; letter-spacing: 0; color: var(--faint); }
+  .support-strip h3 { margin-bottom: 4px; }
+  .support-strip p { color: var(--muted); font-size: 0.93rem; max-width: 560px; }
+  .support-strip p a { color: var(--ink); }
+  .support-strip .fine { display: block; margin-top: 8px; font-family: var(--font-mono); font-size: 0.78rem; color: var(--faint); }
+  .support-strip .fine a { color: var(--muted); }
+  .support-strip .ss-cta { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+  .support-strip .ss-cta .btn { justify-content: center; }
+  @media (max-width: 760px) {
+    .support-strip { flex-direction: column; align-items: stretch; }
+    .support-strip .ss-cta { flex-direction: row; flex-wrap: wrap; }
+  }
 
   /* ------- security ------- */
   .sec-dark { background: var(--bg-2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
@@ -827,12 +964,21 @@
     .nav-in { padding: 10px 14px; gap: 8px; }
     .nav-links { gap: 8px; }
     .btn.sm { padding: 8px 11px; }
+    /* lg buttons kept desktop metrics on phones (57px tall, and the hero pair
+       wrapped onto two rows). Shrink them and let the hero pair share the width
+       as equal columns so they stay side by side. */
+    .btn.lg { font-size: 0.88rem; padding: 10px 14px; }
+    .hero .btn-row { width: 100%; gap: 10px; }
+    .hero .btn-row .btn { min-width: 0; }
     .badge { display: inline-block; font-size: 0.7rem; letter-spacing: 0.05em; line-height: 1.7; }
     .badge .dot { display: inline-block; margin-right: 7px; }
     .trust span { display: inline; }
     .dex { padding-left: 6px; padding-right: 6px; }
     .featured-badges { gap: 8px; margin-bottom: 20px; }
     .featured-badges img { height: 30px; border-radius: 5px; }
+    .taaft-badge { height: 30px; padding: 0 9px; gap: 6px; border-radius: 5px; }
+    .taaft-badge .tb-n { font-size: 0.66rem; }
+    .taaft-badge .tb-l { font-size: 0.42rem; }
     /* CLI provider grid: auto-fit lands on 3 uneven columns at phone widths —
        force 5 across (10 engines = two even rows) and shrink to fit. */
     .cli-logos { grid-template-columns: repeat(5, 1fr); gap: 6px; }
@@ -867,7 +1013,7 @@
       <a class="btn ghost sm" data-gh-stars href="https://github.com/chaitanyagiri/munder-difflin" target="_blank" rel="noopener">
         <span class="ic">★</span><span class="nav-gh-label">Star</span><span class="star-count"></span>
       </a>
-      <button class="theme-toggle" id="themeToggle" aria-label="Toggle day / night theme">☀</button>
+      <button class="theme-toggle" id="themeToggle" aria-label="Toggle day / night theme"><svg class="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.6"/><path d="M12 2.2v2.4M12 19.4v2.4M2.2 12h2.4M19.4 12h2.4M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M19.1 4.9l-1.7 1.7M6.6 17.4l-1.7 1.7"/></svg><svg class="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 14.8A8.8 8.8 0 0 1 9.2 3.4a8.8 8.8 0 1 0 11.4 11.4Z"/></svg></button>
       <a class="btn primary sm" data-download data-align="right" href="https://github.com/chaitanyagiri/munder-difflin/releases/latest"><span class="ic">⤓</span> Download</a>
     </div>
   </div>
@@ -878,8 +1024,14 @@
   <div class="wrap hero-grid">
     <div>
       <div class="featured-badges">
-        <a href="https://theresanaiforthat.com/ai/munder-difflin/?ref=featured&v=11668376" target="_blank" rel="nofollow"><img width="300" src="https://media.theresanaiforthat.com/featured-on-taaft.png?width=600" alt="Featured on There's An AI For That"></a>
-        <a href="https://www.producthunt.com/products/munder-difflin?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-munder-difflin" target="_blank" rel="noopener noreferrer"><img alt="Munder Difflin - Make clones with Claude Code and Codex to do your work | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1221363&amp;theme=light&amp;t=1786616639629"></a>
+        <a class="taaft-badge" href="https://theresanaiforthat.com/ai/munder-difflin/?ref=featured&v=11668376" target="_blank" rel="nofollow" aria-label="Featured on There's An AI For That">
+          <svg class="tb-mark" width="11" height="14" viewBox="0 0 11 14" aria-hidden="true" focusable="false"><path d="M1 1h9v12L5.5 9.7 1 13V1Z" fill="currentColor"/></svg>
+          <span class="tb-txt">
+            <span class="tb-l">Featured on</span>
+            <span class="tb-n">There&rsquo;s an <b class="tb-ai">AI</b> for that</span>
+          </span>
+        </a>
+        <a href="https://www.producthunt.com/products/munder-difflin?embed=true&amp;utm_source=badge-top-post-badge&amp;utm_medium=badge&amp;utm_campaign=badge-munder-difflin" target="_blank" rel="noopener noreferrer"><img alt="Munder Difflin - Make clones with Claude Code and Codex to do your work | Product Hunt — #5 Product of the Day" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1221363&amp;theme=light&amp;period=daily&amp;t=1786777619876"></a>
       </div>
       <h1><span class="u">Clones for</span> you and your team</h1>
       <p class="lead">
@@ -969,9 +1121,9 @@
         <div class="dex-ctrl">
           <span class="dpad" aria-hidden="true"></span>
           <div class="st-btns" role="group" aria-label="Pick a time of day on the floor" id="stBtns">
-            <button class="st-btn on" data-fstate="0">☀ 9AM · ALL IN</button>
-            <button class="st-btn" data-fstate="1">⛅ 2PM · SOME AWAY</button>
-            <button class="st-btn" data-fstate="2">🌙 3AM · CLONES SHIP</button>
+            <button class="st-btn on" data-fstate="0">9AM · ALL IN</button>
+            <button class="st-btn" data-fstate="1">2PM · SOME AWAY</button>
+            <button class="st-btn" data-fstate="2">3AM · CLONES SHIP</button>
           </div>
           <span class="dex-read" id="dexRead">4/4 HUMANS · 4 CLONES ON</span>
           <span class="dex-spk" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
@@ -1488,7 +1640,7 @@
               <li>Clone coordination protocol</li>
               <li>Secure Org Network license</li>
             </ul>
-            <a class="btn" id="ctaNet" href="mailto:girichaitanya11@gmail.com?subject=Munder%20Difflin%20—%20Teams%20Lite%20(10%20seats)">Contact us</a>
+            <a class="btn" id="ctaNet" href="https://cal.com/chaitanya-giri-w3wrwi/munder-difflin-teams-demo" target="_blank" rel="noopener">Contact us</a>
           </div>
           <div class="plan hot">
             <span class="flag">ALWAYS&nbsp;ON</span>
@@ -1500,9 +1652,23 @@
               <li>The whole floor ships with laptops closed</li>
               <li>Hosted org knowledge base, in your controlled environment</li>
             </ul>
-            <a class="btn primary" id="ctaBoth" href="mailto:girichaitanya11@gmail.com?subject=Munder%20Difflin%20—%20Teams%20PRO%20(10%20seats)">Contact us</a>
+            <a class="btn primary" id="ctaBoth" href="https://cal.com/chaitanya-giri-w3wrwi/munder-difflin-teams-demo" target="_blank" rel="noopener">Contact us</a>
           </div>
         </div>
+      </div>
+    </div>
+    <!-- The name reaches the wall through the Razorpay Payment Page's
+         "Name (as you want it engraved)" field — no server. -->
+    <div class="support-strip rv" id="support">
+      <div>
+        <span class="ss-label">FOR THE PROJECT <small>keep it free for everyone</small></span>
+        <h3>Founding Supporter — your name on the Wall</h3>
+        <p>$20, one time. A permanent brass plaque on the
+        <a href="/wall.html">Founders' Wall</a>. Munder Difflin stays free for everyone.</p>
+      </div>
+      <div class="ss-cta">
+        <a class="btn primary" data-support="wall" href="https://rzp.io/rzp/munder-difflin" target="_blank" rel="noopener">Claim your plaque</a>
+        <a class="btn ghost" href="/wall.html">See the Wall →</a>
       </div>
     </div>
   </div>
@@ -1567,6 +1733,13 @@
         <a class="btn lg" data-gh-stars href="https://github.com/chaitanyagiri/munder-difflin" target="_blank" rel="noopener"><span class="ic">★</span> Star on GitHub<span class="star-count"></span></a>
       </div>
       <div class="mono-hint">macOS · Windows · Linux — free for individuals · org licenses for teams</div>
+      <!-- v0.4.4: the Windows headline belongs where people decide to download.
+           Anyone who tried it on Windows before and watched their agents ignore
+           each other needs to know that specific bug is gone. -->
+      <div class="mono-hint" style="margin-top:6px">
+        <strong>New in v0.4.4</strong> — agent-to-agent messaging now works on Windows ·
+        <a href="https://github.com/chaitanyagiri/munder-difflin/releases/latest">release notes</a>
+      </div>
     </div>
   </div>
 </section>
@@ -1578,13 +1751,84 @@
       <a href="https://github.com/chaitanyagiri/munder-difflin" target="_blank" rel="noopener">GitHub</a>
       <a href="/blog/">Blog</a>
       <a href="#pricing">Pricing</a>
+      <a href="/wall.html">Founders' Wall</a>
       <a href="mailto:girichaitanya11@gmail.com">Contact</a>
       <a href="https://github.com/chaitanyagiri/munder-difflin/releases/latest">Download</a>
       <a href="https://github.com/chaitanyagiri/munder-difflin/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a>
       <a href="https://github.com/chaitanyagiri/munder-difflin/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+      <a href="/terms.html">Terms</a>
+      <a href="/privacy.html">Privacy</a>
     </div>
   </div>
 </footer>
+
+<!-- ══════════════ DOWNLOAD / SUPPORT MODAL ══════════════
+     Opens on every Download click. The ask comes first, but the download is
+     never gated — "download without paying" is always one click away.
+     The wall name travels inside the Razorpay checkout's Message box (static
+     site, no server): we copy it to the clipboard and tell the payer to paste. -->
+<div class="smb" id="smBackdrop" role="dialog" aria-modal="true" aria-labelledby="smTitle">
+  <div class="smodal">
+    <button class="sm-close" id="smClose" aria-label="Close">✕</button>
+
+    <div class="sm-step on" data-step="ask">
+      <span class="sm-kicker">BEFORE YOU DOWNLOAD</span>
+      <h3 id="smTitle">The wall keeps Munder Difflin free.</h3>
+      <p>A one-time $20 puts your name on a brass plaque on the
+      <a href="/wall.html" target="_blank">Founders' Wall</a>.
+      Want to stay anonymous? That's fine too.</p>
+      <div class="sm-plaque" aria-hidden="true"><span class="no">FOUNDING SUPPORTER</span><span class="nm">Your name</span></div>
+      <div class="sm-actions">
+        <button class="btn primary" id="smWall">Get on the wall for $20</button>
+        <button class="sm-skip" id="smFree">download without paying ↓</button>
+      </div>
+    </div>
+
+    <div class="sm-step" data-step="name">
+      <span class="sm-kicker">THE PLAQUE</span>
+      <h3>What should it say?</h3>
+      <div class="sm-plaque"><span class="no">FOUNDING SUPPORTER</span><span class="nm" id="smPreview">Your name</span></div>
+      <div class="sm-name"><input id="smName" type="text" maxlength="40" placeholder="Your name" autocomplete="name" /></div>
+      <span class="sm-note">Razorpay opens next. <b>Paste your name into the
+      “Name (as you want it engraved)” field</b> there. That's exactly what the
+      plaque will say. No accounts, no servers.</span>
+      <div class="sm-actions">
+        <button class="btn primary" id="smPay">Copy name &amp; pay on Razorpay</button>
+        <button class="sm-skip" id="smAnon">support anonymously instead</button>
+      </div>
+    </div>
+
+    <div class="sm-step" data-step="pay">
+      <span class="sm-kicker">ONE LAST STEP</span>
+      <h3>Finish up in the Razorpay tab.</h3>
+      <p>Paste your name into the <b>“Name (as you want it engraved)”</b> field
+      before you pay, then come back here.</p>
+      <div class="sm-actions">
+        <button class="btn primary" id="smPaid">I've paid 🎉</button>
+        <button class="sm-skip" id="smSkipToFree">just take me to the download</button>
+      </div>
+    </div>
+
+    <div class="sm-step" data-step="done">
+      <span class="sm-kicker">WELCOME TO THE WALL</span>
+      <h3 id="smDoneTitle">You kept the lights on.</h3>
+      <p>Your plaque is being engraved. It appears on the
+      <a href="/wall.html" target="_blank">Founders' Wall</a> within 24 hours.</p>
+      <div class="sm-plaque"><span class="no">FOUNDING SUPPORTER</span><span class="nm" id="smPreviewDone">Anonymous</span></div>
+      <div class="sm-dl" id="smDlDone"></div>
+    </div>
+
+    <div class="sm-step" data-step="free">
+      <span class="sm-kicker">DOWNLOAD</span>
+      <h3>Pick your platform.</h3>
+      <div class="sm-dl" id="smDlFree"></div>
+      <div class="sm-actions">
+        <button class="sm-skip" id="smBackToWall">…or get on the wall for $20</button>
+      </div>
+    </div>
+  </div>
+</div>
+<canvas id="smConfetti" aria-hidden="true"></canvas>
 
 <script>
 /* ── live floor simulation + employee ID card ─────────────────────────────
@@ -2484,42 +2728,31 @@
 
 
 <script>
-  // pricing seat slider → label + team mailto subjects
+  // pricing seat slider → label; team CTAs book the enterprise discovery call
+  // (cal.com), so the slider no longer rewrites their hrefs
   (function () {
     var r = document.getElementById('seatRange');
     if (!r) return;
     var stops = ['10', '20', '50', '100', '100+'];
     var lbl = document.getElementById('seatLabel');
-    var net = document.getElementById('ctaNet');
-    var both = document.getElementById('ctaBoth');
     var marks = document.querySelectorAll('.seat-scale span');
     function upd() {
       var i = +r.value, v = stops[i];
       lbl.textContent = (v === '100+' ? '100+ seats' : 'up to ' + v + ' seats');
-      net.href = 'mailto:girichaitanya11@gmail.com?subject=' +
-        encodeURIComponent('Munder Difflin — Teams Lite (' + v + ' seats)');
-      both.href = 'mailto:girichaitanya11@gmail.com?subject=' +
-        encodeURIComponent('Munder Difflin — Teams PRO (' + v + ' seats)');
       marks.forEach(function (el, j) { el.classList.toggle('on', j === i); });
     }
     r.addEventListener('input', upd);
     upd();
   })();
 
-  // theme toggle
+  // theme toggle — icon swap is pure CSS off data-theme (see .theme-toggle svg)
   (function () {
     var btn = document.getElementById('themeToggle');
-    function paint() {
-      var t = document.documentElement.getAttribute('data-theme');
-      btn.textContent = t === 'dark' ? '☾' : '☀';
-    }
     btn.addEventListener('click', function () {
       var t = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', t);
       try { localStorage.setItem('mdf_theme', t); } catch (e) {}
-      paint();
     });
-    paint();
   })();
 
   // reveal on scroll — progressive: hidden state only exists under html.js,
@@ -2538,76 +2771,158 @@
     }, 2000);
   })();
 
-  // download picker — pick macOS / Windows / Linux, click starts the download
+  // download / support modal — every Download button opens it. The ask comes
+  // first; "download without paying" keeps the download genuinely ungated.
   (function () {
     var REPO = 'chaitanyagiri/munder-difflin';
-    var REL = '0.4.3'; // fallback version; live links are resolved from the GitHub API below
+    var REL = '0.4.4'; // fallback version; live links are resolved from the GitHub API below
     var BASE = 'https://github.com/' + REPO + '/releases/latest/download/';
+    var PAY_URL = 'https://rzp.io/rzp/munder-difflin'; // Razorpay Payment Page — Munder Difflin: Founders' Wall
     var PLATFORMS = [
-      { key: 'mac',   icon: '🍎', os: 'macOS',   sub: 'Universal · Apple Silicon + Intel', match: 'mac-universal.dmg',     file: 'Munder-Difflin-' + REL + '-mac-universal.dmg' },
-      { key: 'win',   icon: '🪟', os: 'Windows', sub: '64-bit installer (.exe)',           match: 'win-x64-setup.exe',     file: 'Munder-Difflin-' + REL + '-win-x64-setup.exe' },
-      { key: 'linux', icon: '🐧', os: 'Linux',   sub: 'AppImage · x86_64',                 match: 'linux-x86_64.AppImage', file: 'Munder-Difflin-' + REL + '-linux-x86_64.AppImage' }
+      { key: 'mac',   icon: '\ud83c\udf4e', os: 'macOS',   sub: 'Universal \u00b7 Apple Silicon + Intel', match: 'mac-universal.dmg',     file: 'Munder-Difflin-' + REL + '-mac-universal.dmg' },
+      { key: 'win',   icon: '\ud83e\ude9f', os: 'Windows', sub: '64-bit installer (.exe)',           match: 'win-x64-setup.exe',     file: 'Munder-Difflin-' + REL + '-win-x64-setup.exe' },
+      { key: 'linux', icon: '\ud83d\udc27', os: 'Linux',   sub: 'AppImage \u00b7 x86_64',                 match: 'linux-x86_64.AppImage', file: 'Munder-Difflin-' + REL + '-linux-x86_64.AppImage' }
     ];
     var ua = navigator.userAgent;
     var cur = /Windows/.test(ua) ? 'win'
             : (/Mac|iPhone|iPad/.test(ua) ? 'mac'
             : (/Linux|Android|X11/.test(ua) ? 'linux' : null));
 
-    var triggers = document.querySelectorAll('[data-download]');
-    if (!triggers.length) return;
+    var backdrop = document.getElementById('smBackdrop');
+    if (!backdrop) return;
+    var modal = backdrop.querySelector('.smodal');
 
-    triggers.forEach(function (t) {
-      var wrap = document.createElement('span');
-      wrap.className = 'dl';
-      t.parentNode.insertBefore(wrap, t);
-      wrap.appendChild(t);
-      t.insertAdjacentHTML('beforeend', '<span class="dl-caret" aria-hidden="true">▾</span>');
-      t.setAttribute('aria-haspopup', 'true');
-      t.setAttribute('aria-expanded', 'false');
+    function ph(ev, props) { try { if (window.posthog) window.posthog.capture(ev, props); } catch (e) {} }
 
-      var menu = document.createElement('div');
-      menu.className = 'dl-menu' + (t.getAttribute('data-align') === 'right' ? ' right' : '');
-      menu.setAttribute('role', 'menu');
+    function buildList(el) {
+      if (!el) return;
       PLATFORMS.forEach(function (p) {
         var a = document.createElement('a');
         a.href = BASE + p.file;
         a.setAttribute('download', '');
-        a.setAttribute('role', 'menuitem');
         a.dataset.key = p.key;
         a.innerHTML = '<span class="dl-ic">' + p.icon + '</span>' +
-          '<span class="dl-txt"><b>' + p.os + (p.key === cur ? ' <em>· your OS</em>' : '') +
+          '<span class="dl-txt"><b>' + p.os + (p.key === cur ? ' <em>\u00b7 your OS</em>' : '') +
           '</b><span>' + p.sub + '</span></span>';
-        menu.appendChild(a);
+        el.appendChild(a);
       });
-      wrap.appendChild(menu);
+    }
+    buildList(document.getElementById('smDlDone'));
+    buildList(document.getElementById('smDlFree'));
 
-      t.addEventListener('click', function (e) {
-        e.preventDefault();
-        var isOpen = wrap.classList.contains('open');
-        document.querySelectorAll('.dl.open').forEach(function (d) {
-          d.classList.remove('open');
-          var trg = d.querySelector('[data-download]'); if (trg) trg.setAttribute('aria-expanded', 'false');
-        });
-        if (!isOpen) { wrap.classList.add('open'); t.setAttribute('aria-expanded', 'true'); }
+    function step(name) {
+      modal.querySelectorAll('.sm-step').forEach(function (s) {
+        s.classList.toggle('on', s.getAttribute('data-step') === name);
       });
-      menu.addEventListener('click', function (e) {
-        if (e.target.closest('a')) { wrap.classList.remove('open'); t.setAttribute('aria-expanded', 'false'); }
-      });
+      modal.scrollTop = 0;
+    }
+    function openModal(startStep) {
+      step(startStep || 'ask');
+      backdrop.classList.add('open');
+      document.body.style.overflow = 'hidden';
+      ph('support_viewed', { surface: 'download_modal' });
+    }
+    function closeModal() {
+      backdrop.classList.remove('open');
+      document.body.style.overflow = '';
+    }
+
+    // every Download button opens the modal instead of dropping a menu
+    document.querySelectorAll('[data-download]').forEach(function (t) {
+      t.addEventListener('click', function (e) { e.preventDefault(); openModal('ask'); });
+    });
+    // the pricing-strip CTA jumps straight to the name step
+    var stripCta = document.querySelector('#support a[data-support="wall"]');
+    if (stripCta) stripCta.addEventListener('click', function (e) { e.preventDefault(); openModal('name'); });
+
+    document.getElementById('smClose').addEventListener('click', closeModal);
+    backdrop.addEventListener('click', function (e) { if (e.target === backdrop) closeModal(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && backdrop.classList.contains('open')) closeModal();
     });
 
-    document.addEventListener('click', function (e) {
-      if (!e.target.closest('.dl')) {
-        document.querySelectorAll('.dl.open').forEach(function (d) {
-          d.classList.remove('open');
-          var trg = d.querySelector('[data-download]'); if (trg) trg.setAttribute('aria-expanded', 'false');
+    // live plaque preview
+    var nameInput = document.getElementById('smName');
+    var preview = document.getElementById('smPreview');
+    var previewDone = document.getElementById('smPreviewDone');
+    nameInput.addEventListener('input', function () {
+      preview.textContent = nameInput.value.trim() || 'Your name';
+    });
+
+    document.getElementById('smWall').addEventListener('click', function () { step('name'); nameInput.focus(); });
+    document.getElementById('smBackToWall').addEventListener('click', function () { step('name'); nameInput.focus(); });
+    document.getElementById('smFree').addEventListener('click', function () {
+      step('free');
+      ph('support_clicked', { tier: 'skip', surface: 'download_modal' });
+    });
+    document.getElementById('smSkipToFree').addEventListener('click', function () { step('free'); });
+
+    function goPay() {
+      ph('support_clicked', { tier: 'wall', surface: 'download_modal' });
+      window.open(PAY_URL, '_blank', 'noopener');
+      step('pay');
+    }
+    document.getElementById('smPay').addEventListener('click', function () {
+      var v = nameInput.value.trim();
+      if (v && navigator.clipboard) { try { navigator.clipboard.writeText(v); } catch (e) {} }
+      goPay();
+    });
+    document.getElementById('smAnon').addEventListener('click', goPay);
+
+    // self-reported — a static site can't verify a payment made in another tab
+    document.getElementById('smPaid').addEventListener('click', function () {
+      var v = nameInput.value.trim();
+      document.getElementById('smDoneTitle').textContent = v ? ('Thank you, ' + v + '.') : 'You kept the lights on.';
+      previewDone.textContent = v || 'Anonymous';
+      step('done');
+      confetti();
+      ph('support_paid', { surface: 'download_modal' });
+    });
+
+    // celebration — brand-gold canvas confetti, no library, ~3s, honors
+    // prefers-reduced-motion
+    function confetti() {
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      var cv = document.getElementById('smConfetti');
+      if (!cv || !cv.getContext) return;
+      var ctx = cv.getContext('2d');
+      var W = cv.width = window.innerWidth;
+      var H = cv.height = window.innerHeight;
+      var COLORS = ['#FFD165', '#FFCA54', '#E5A00D', '#FFE08F', '#FFFFFF', '#C9A24E'];
+      var parts = [];
+      for (var i = 0; i < 170; i++) {
+        parts.push({
+          x: W / 2 + (Math.random() - 0.5) * W * 0.35,
+          y: H * 0.4,
+          vx: (Math.random() - 0.5) * 15,
+          vy: -7 - Math.random() * 9,
+          w: 5 + Math.random() * 6,
+          h: 8 + Math.random() * 8,
+          rot: Math.random() * Math.PI,
+          vr: (Math.random() - 0.5) * 0.3,
+          c: COLORS[(Math.random() * COLORS.length) | 0]
         });
       }
-    });
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') document.querySelectorAll('.dl.open').forEach(function (d) { d.classList.remove('open'); });
-    });
+      var t0 = null;
+      function frame(ts) {
+        if (t0 === null) t0 = ts;
+        var el = ts - t0;
+        ctx.clearRect(0, 0, W, H);
+        parts.forEach(function (p) {
+          p.vy += 0.26; p.x += p.vx; p.y += p.vy; p.vx *= 0.99; p.rot += p.vr;
+          ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+          ctx.globalAlpha = Math.max(0, 1 - el / 3000);
+          ctx.fillStyle = p.c;
+          ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+          ctx.restore();
+        });
+        if (el < 3200) requestAnimationFrame(frame);
+        else ctx.clearRect(0, 0, W, H);
+      }
+      requestAnimationFrame(frame);
+    }
 
-    // upgrade every menu link to the real latest-release asset URLs so they
+    // upgrade the platform links to the real latest-release asset URLs so they
     // never 404 after a version bump (graceful fallback to the hardcoded links).
     try {
       fetch('https://api.github.com/repos/' + REPO + '/releases/latest')
@@ -2617,7 +2932,7 @@
           PLATFORMS.forEach(function (p) {
             var asset = rel.assets.find(function (a) { return a.name.indexOf(p.match) !== -1; });
             if (!asset) return;
-            document.querySelectorAll('.dl-menu a[data-key="' + p.key + '"]').forEach(function (el) {
+            document.querySelectorAll('.sm-dl a[data-key="' + p.key + '"]').forEach(function (el) {
               el.href = asset.browser_download_url;
             });
           });
@@ -2681,7 +2996,7 @@
   // no autocapture, no session recording, DNT respected. Two events only:
   // $pageview and download_clicked (which file a visitor grabbed).
   (function () {
-    var PH_KEY = '';
+    var PH_KEY = 'phc_qJzsokwcbtTGHemnvywR3nSqivNNgMjHeNVEWkZNydFB';
     if (!PH_KEY || navigator.doNotTrack === '1') return;
     var s = document.createElement('script');
     s.async = true;
@@ -2702,6 +3017,30 @@
         var file = href.split('/').pop() || 'releases-latest';
         window.posthog.capture('download_clicked', { file: file });
       }, true);
+      // support funnel: support_viewed once (strip scrolls into view),
+      // support_clicked per tier — measured against download_clicked above.
+      document.addEventListener('click', function (ev) {
+        var a = ev.target && ev.target.closest ? ev.target.closest('a[data-support]') : null;
+        if (!a) return;
+        window.posthog.capture('support_clicked', {
+          tier: a.getAttribute('data-support'),
+          surface: 'landing'
+        });
+      }, true);
+      var strip = document.getElementById('support');
+      if (strip && 'IntersectionObserver' in window) {
+        var seen = false;
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (en) {
+            if (en.isIntersecting && !seen) {
+              seen = true;
+              window.posthog.capture('support_viewed', { surface: 'pricing_strip' });
+              io.disconnect();
+            }
+          });
+        }, { threshold: 0.4 });
+        io.observe(strip);
+      }
     };
     document.head.appendChild(s);
   })();

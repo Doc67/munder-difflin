@@ -22,7 +22,7 @@ visualized as avatars at work on a shared office floor.
 
 <p>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-F4D35E.svg?style=flat-square&labelColor=6E1423"></a>
-  <a href="./CHANGELOG.md"><img alt="Version: 0.4.3" src="https://img.shields.io/badge/version-0.4.3-F4D35E.svg?style=flat-square&labelColor=6E1423"></a>
+  <a href="./CHANGELOG.md"><img alt="Version: 0.4.4" src="https://img.shields.io/badge/version-0.4.4-F4D35E.svg?style=flat-square&labelColor=6E1423"></a>
   <img alt="Status: prototype" src="https://img.shields.io/badge/status-working%20prototype-F4F1EA.svg?style=flat-square&labelColor=6E1423">
   <img alt="Platform: macOS | Windows | Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-F4F1EA.svg?style=flat-square&labelColor=6E1423">
   <a href="./CONTRIBUTING.md"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-F4D35E.svg?style=flat-square&labelColor=6E1423"></a>
@@ -135,19 +135,24 @@ terminal/event plane, and [`DESIGN.md`](./DESIGN.md) for the visual system.
 
 **Command Center**
 - Kanban tasks with dependencies, scheduled missions + heartbeat, live fleet monitoring, memory search, activity log, and a CI watcher.
+- **Skills** — what every agent can already do across Claude Code, OpenCode and Codex, plus a browsable catalog of 227 more with search, filters, install and uninstall.
 - **Built-in Monaco IDE** — file tree, editor tabs, save, plus CHANGES · HISTORY · COMPARE git rails with commit graph, diffs, branch compare, and guarded checkout. All fs/git access brokered through main.
 
 **Getting work in and out**
 - **Slack & webhooks** — message a channel or POST a webhook; Michael can spawn an ephemeral worker, reply in-thread, and tear it down.
 - **Shareable hires + Agent Gallery** — import a role from a `munderdifflin://hire` link; import only pre-fills the form, a human still spawns it. Browse roles at the [Agent Gallery](https://munderdiffl.in/hires/).
 - **BYOK keys + local LLMs** — per-provider keys in a write-only secret broker, plus Ollama / LM Studio / vLLM base URLs. Guides: [open models](https://munderdiffl.in/blog/run-munder-difflin-on-open-models/) · [Mac Mini](https://munderdiffl.in/blog/run-munder-difflin-on-a-mac-mini/).
-- **Auto-update** — new releases download in the background; you click restart.
+- **Auto-update** — new releases download in the background; you click restart, and the notes arrive as a designed page rather than a version number.
+- **Prerequisites** — one Settings page showing which supporting tools (uv, git, Node, MemPalace, each agent CLI) you have, what each is for, and a button that asks Michael to install what is missing.
 
 > [!NOTE]
-> **Status: v0.4.3 — Michael is the logo.** The mark is now the character the product is about,
-> drawn in the app's own pixel art and generated from one vector source, so the dock icon, the
-> site and this README can no longer drift apart. Earlier: anonymous opt-out usage stats
-> documented in the open (0.4.2), and the app's wording brought in line with the site (0.4.1).
+> **Status: v0.4.4 — Windows agents can finally talk to each other.** On Windows, agents were
+> never told they could message one another: the protocol reaches them as a multi-line command
+> line, and `cmd.exe` cut it at the first newline. They started, looked healthy, and ignored each
+> other forever. If you tried Munder Difflin on Windows and your team just sat there, that was
+> this bug. Also fixed: a fresh install now starts its own message router instead of waiting for a
+> restart, the setup wizard can be finished, and dark mode is rebuilt for readability. New in this
+> release: **Skills**, **Prerequisites**, and release notes that carry their own page.
 > **If you're on 0.3.8, update:** that build's usage-limit guard never released the agents it held,
 > and it has been removed entirely.
 > macOS (signed & notarized), Windows, and Linux builds are on the

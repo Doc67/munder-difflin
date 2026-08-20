@@ -8,6 +8,12 @@ import type { UpdateStatus } from '../shared/updateState';
 export type { UpdateStatus } from '../shared/updateState';
 import type { QuotaState, QuotaBlockInfo } from '../shared/quota';
 export type { QuotaState, QuotaBlockInfo } from '../shared/quota';
+import type { ToolStatus } from '../shared/toolCatalog';
+export type { ToolStatus } from '../shared/toolCatalog';
+import type { HeroPayload } from '../shared/heroPayload';
+export type { HeroPayload } from '../shared/heroPayload';
+import type { LocalSkill, CatalogSkill } from '../main/skills';
+export type { LocalSkill, CatalogSkill } from '../main/skills';
 import type {
   ContextRule, ContextTriggerConfig, OrgTriggerConfig, TriggerHistoryEntry, WebhookTrigger
 } from '../shared/triggers';
@@ -139,6 +145,7 @@ export interface HumanQA {
   a?: string;
   askedAt?: string;
   answeredAt?: string;
+  dismissedAt?: string;
 }
 
 /** A card on the task kanban, persisted to hive/tasks.json. */
@@ -622,6 +629,21 @@ const api = {
   /** Read the system clipboard as plain text ('' when empty/unreadable). */
   readClipboard: (): Promise<string> =>
     ipcRenderer.invoke('app:readClipboard'),
+  /** Clipboard text, read SYNCHRONOUSLY. Only for the terminal's paste shortcut,
+   *  where an async read loses a race against dictation tools that restore the
+   *  previous clipboard right after sending the paste key.
+   *
+   *  TRADEOFF, stated plainly because sendSync blocks the renderer until main
+   *  answers: this app has a history of main-thread stalls (iCloud-evicted files
+   *  wedging a spawnSync git call), and during such a stall this call freezes the
+   *  paste keystroke rather than merely delaying it. Accepted because a clipboard
+   *  read is a memory lookup with no I/O, and because the async alternative is
+   *  measurably WRONG — it pastes the user's previous clipboard. Do not reach for
+   *  sendSync elsewhere on this reasoning; it is justified by the race, not by
+   *  convenience. */
+  readClipboardSync: (): string => {
+    try { return ipcRenderer.sendSync('app:readClipboardSync') ?? ''; } catch { return ''; }
+  },
 
   // ─── Config ──────────────────────────────────────────────────────────────
   getConfig: (): Promise<HarnessConfig> =>
@@ -644,6 +666,19 @@ const api = {
   readFile: (root: string, rel: string): Promise<
     { ok: true; content: string; path: string; size: number } | { ok: false; error: string }
   > => ipcRenderer.invoke('fs:readFile', root, rel),
+  /** Raw bytes for files `readFile` refuses (images). The renderer has no way to
+   *  load them off disk — the CSP allows no `file:` source and no file protocol
+   *  is registered — so images travel as bytes and become a `blob:` URL in the
+   *  renderer, which `img-src` already permits. Root-confined and size-capped in
+   *  the main process; `mime` is derived from the extension. */
+  readBinary: (root: string, rel: string): Promise<
+    // `Uint8Array<ArrayBuffer>`, not the bare alias: structured clone always
+    // hands the renderer a view over a plain ArrayBuffer, and saying so is what
+    // lets the value go straight into `new Blob([...])` — the default
+    // `ArrayBufferLike` admits SharedArrayBuffer, which BlobPart rejects.
+    { ok: true; bytes: Uint8Array<ArrayBuffer>; mime: string; path: string; size: number }
+    | { ok: false; error: string }
+  > => ipcRenderer.invoke('fs:readBinary', root, rel),
   writeFile: (root: string, rel: string, content: string): Promise<
     { ok: true; path: string } | { ok: false; error: string }
   > => ipcRenderer.invoke('fs:writeFile', root, rel, content),
@@ -721,6 +756,29 @@ const api = {
 
   // ─── Semantic memory (MemPalace CLI) ─────────────────────────────────────
   memoryStatus: (): Promise<MemoryStatus> => ipcRenderer.invoke('hive:memoryStatus'),
+  /** Which external tools (uv, mempalace, git, each agent engine) are actually
+   *  present on this machine, with a platform-resolved install command each. */
+  toolsStatus: (): Promise<ToolStatus[]> => ipcRenderer.invoke('tools:status'),
+  /** Settings hero payload — plan + sponsor, fetched from the repo and cached. */
+  heroPayload: (force?: boolean): Promise<{ hero: HeroPayload; fetchedAt: number; stale: boolean }> =>
+    ipcRenderer.invoke('hero:payload', force),
+  /** Skills already installed for the coding agents on this machine. */
+  skillsLocal: (cwd?: string): Promise<LocalSkill[]> => ipcRenderer.invoke('skills:local', cwd),
+  /** The browsable skills catalog (cached; `force` re-fetches). */
+  skillsCatalog: (force?: boolean): Promise<{
+    skills: CatalogSkill[]; fetchedAt: number; stale: boolean; error?: string;
+  }> => ipcRenderer.invoke('skills:catalog', force),
+  /** Install a catalog skill into ~/.claude/skills. `unsupported` distinguishes
+   *  "there is no downloadable source" from "the download failed". */
+  skillsInstall: (url: string, name: string): Promise<
+    { ok: true; path: string } | { ok: false; error: string; unsupported?: boolean }
+  > => ipcRenderer.invoke('skills:install', url, name),
+  /** Delete an installed skill. Main refuses any path outside a skills root. */
+  skillsUninstall: (path: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('skills:uninstall', path),
+  /** Show a skill's folder in the OS file manager. */
+  skillsReveal: (path: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('skills:reveal', path),
   searchMemory: (query: string, wing?: string): Promise<{ ok: boolean; output: string; error?: string }> =>
     ipcRenderer.invoke('hive:searchMemory', query, wing),
   memoryWakeUp: (wing?: string): Promise<{ ok: boolean; output: string; error?: string }> =>
@@ -966,9 +1024,17 @@ const api = {
   },
 
   // ─── Task kanban (hive/tasks.json) ───────────────────────────────────────
-  /** Overwrite the hive task ledger with the full task list and commit it. */
-  hiveWriteTasks: (tasks: HiveTask[]): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke('hive:writeTasks', tasks),
+  /** Atomically append one card against the latest main-process ledger. */
+  hiveAddTask: (task: HiveTask): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('hive:addTask', task),
+  /** Atomically patch one named card without replacing unrelated cards/fields. */
+  hivePatchTask: (
+    id: string,
+    patch: Partial<Omit<HiveTask, 'id'>>
+  ): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('hive:patchTask', id, patch),
+  /** Atomically remove one named card from the latest main-process ledger. */
+  hiveDeleteTask: (id: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('hive:deleteTask', id),
 
   // ─── Scheduled missions (recurring auto-dispatch) ──────────────────────────
   listMissions: (): Promise<ScheduledMission[]> => ipcRenderer.invoke('missions:list'),
@@ -1311,7 +1377,22 @@ const api = {
     const listener = (_e: IpcRendererEvent, state: { agentId: string; info: QuotaBlockInfo | null }) => cb(state);
     ipcRenderer.on('quota:blockState', listener);
     return () => ipcRenderer.removeListener('quota:blockState', listener);
-  }
+  },
+
+  /** DEV ONLY — fabricate an update status so the toast can be inspected without
+   *  cutting a release. Refused (`{ok:false}`) in a packaged build; see the
+   *  handler in updater.ts. Call it from the devtools console:
+   *    await window.cth.updateSimulate()                       // notify-only digest toast
+   *    await window.cth.updateSimulate({ state: 'downloaded' }) // restart-to-update toast
+   *    await window.cth.updateSimulate({ drop: true })          // the centered release page
+   *    await window.cth.updateSimulate({ notes: '<!-- drop -->…' }) // your own drop */
+  updateSimulate: (opts?: {
+    state?: 'downloaded' | 'available-manual';
+    version?: string;
+    notes?: string;
+    /** Preview the centered release page using the default drop template. */
+    drop?: boolean;
+  }): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('update:simulate', opts)
 };
 
 contextBridge.exposeInMainWorld('cth', api);
