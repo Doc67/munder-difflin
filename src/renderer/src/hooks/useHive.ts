@@ -500,8 +500,14 @@ export function useHive(config: HarnessConfig | null): void {
       if (current?.quotaBlock) return;
       if (s.level === 'constrained' || s.level === 'stopped') {
         updateAgent(s.agentId, { status: 'looping', action: s.reason || 'breaker armed', carrying: undefined });
+      } else if (current?.status === 'looping') {
+        // Breaker recovered (steering/healthy) — clear the looping pin immediately
+        // so the drain can deliver without waiting for the next hook event or quiescence.
+        updateAgent(s.agentId, { status: 'idle', action: 'idle' });
+        // Reset the inbox-wake seen set so any messages that piled up while
+        // looping are treated as fresh and get a single re-nudge.
+        nudged.current[s.agentId]?.clear();
       }
-      // 'healthy'/'steering' clear the pin; the next hook event refreshes status.
     });
   }, []);
 
@@ -630,6 +636,8 @@ export function useHive(config: HarnessConfig | null): void {
         const last = lastOut[a.ptyId];
         if (typeof last === 'number' && last > 0 && now - last > QUIESCE_IDLE_MS) {
           updateAgent(a.id, { status: 'idle', action: 'idle', carrying: undefined });
+          // Clear seen so inbox messages queued while looping get a single re-nudge.
+          if (a.status === 'looping') nudged.current[a.id]?.clear();
         }
       }
     }, QUIESCE_POLL_MS);
@@ -662,10 +670,8 @@ export function useHive(config: HarnessConfig | null): void {
           // Prune IDs that are no longer in inbox (agent already handled them).
           const inboxIds = new Set(inbox.map((m) => m.id).filter(Boolean) as string[]);
           for (const id of seen) if (!inboxIds.has(id)) seen.delete(id);
-          // Re-arm: if the agent is looping (breaker-stuck) and still has messages
-          // we already nudged about, forget those nudges so a fresh one can queue.
-          // The RC-4 quiescence fix will flip looping→idle so the nudge can drain.
-          if (a.status === 'looping' && seen.size > 0) seen.clear();
+          // Do NOT clear seen while looping — that fires a new nudge every 4s and floods
+          // the queue. seen is cleared in effect 2b / quiescence when looping→idle clears.
           const fresh = inbox.filter((m) => m.id && !seen.has(m.id));
           if (fresh.length) {
             useStore.getState().enqueueMessage(
