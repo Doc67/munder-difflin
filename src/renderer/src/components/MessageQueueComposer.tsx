@@ -273,9 +273,15 @@ export function MessageQueueComposer({ agent }: MessageQueueComposerProps) {
 
     const scan = async () => {
       try {
-        const msgs = await window.cth.hiveInbox(agent.id, false);
+        // Include done messages so the button stays enabled after god reads the
+        // report (which moves it to .done). Filter to the last 4 hours so stale
+        // reports from previous days don't re-enable the button.
+        const cutoff = Date.now() - 4 * 60 * 60 * 1000;
+        const msgs = await window.cth.hiveInbox(agent.id, true);
         const report = [...msgs].reverse().find(
-          (m) => m.from !== agent.id && BRANCH_RE.test(m.body) && COMMIT_RE.test(m.body) && PUSH_OK_RE.test(m.body)
+          (m) => m.from !== agent.id &&
+            new Date(m.created_at).getTime() >= cutoff &&
+            BRANCH_RE.test(m.body) && COMMIT_RE.test(m.body) && PUSH_OK_RE.test(m.body)
         );
         if (report) {
           const branch = BRANCH_RE.exec(report.body)?.[1]?.trim() ?? null;
