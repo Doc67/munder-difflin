@@ -1101,9 +1101,14 @@ function runBreakerBeat(progressWindowMs: number): void {
     // one residual no-progress false positive after the #109 fixes.
     const spans = telemetry.getSpans(id);
     const lastSpanAt = spans.length ? spans[spans.length - 1].ts : 0;
+    // StubUsageProvider reads all transcripts in the agent's CWD — two agents
+    // sharing a CWD (e.g. Jim + Stanley both in F:\WitchTD) bleed each other's
+    // token counts. Without a live sessionId the sample is cross-agent stale data
+    // and must not drive velocity/no-progress decisions. Pass null so the breaker
+    // treats this agent as having no measurable usage this beat.
     inputs.push({
       agentId: id,
-      sample,
+      sample: sample?.sessionId ? sample : null,
       progressing: now - lastCoordinationAt(id) < progressWindowMs || now - lastSpanAt < progressWindowMs
     });
   }
