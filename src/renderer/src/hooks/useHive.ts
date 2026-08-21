@@ -312,6 +312,10 @@ export function useHive(config: HarnessConfig | null): void {
   // 'stopped' the avatar is pinned to 'looping' and hook events must NOT flip it
   // back to 'working' (the flicker the spec calls out); only a genuine Stop clears it.
   const breakerLevel = useRef<Record<string, string>>({});
+  // Timestamp of the most-recent control:breakerState event per agent.
+  // Used by quiescence to detect stale constrained pins: if no fresh event
+  // has arrived in > 2 beat periods (60s), the pin is orphaned and safe to clear.
+  const breakerStateAt = useRef<Record<string, number>>({});
 
   // 1) Bootstrap the god agent (source of truth = live PTYs, to dodge restarts).
   useEffect(() => {
@@ -492,6 +496,7 @@ export function useHive(config: HarnessConfig | null): void {
   useEffect(() => {
     return window.cth.onBreakerState((s) => {
       breakerLevel.current[s.agentId] = s.level;
+      breakerStateAt.current[s.agentId] = Date.now();
       const { updateAgent, agents } = useStore.getState();
       if (!agents.some((a) => a.id === s.agentId)) return;
       // Quota-blocked agents are externally limited, not looping — do not let
@@ -627,8 +632,15 @@ export function useHive(config: HarnessConfig | null): void {
         // must stay looping — the breaker is still in charge. But once the
         // breaker backs off to healthy/steering the pin is stale and PTY silence
         // is safe evidence the agent is idle.
+        //
+        // Stale-pin timeout: if no fresh control:breakerState event has arrived
+        // in > 65s (> 2 beat periods), the constrained pin is orphaned — the
+        // breaker stopped emitting for this agent (e.g. no live PTY in inputs).
+        // After this grace the agent's own PTY silence is authoritative.
         const bl = breakerLevel.current[a.id];
-        if (bl === 'constrained' || bl === 'stopped') continue;
+        const blAge = now - (breakerStateAt.current[a.id] ?? 0);
+        const pinIsLive = blAge < 65_000;
+        if (pinIsLive && (bl === 'constrained' || bl === 'stopped')) continue;
         if (a.status !== 'working' && a.status !== 'looping') continue;
         // Never touch a quota-blocked agent — it is not working, it is blocked.
         if (a.quotaBlock) continue;
